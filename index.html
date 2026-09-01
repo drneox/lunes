@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>lunes — Seguimiento de Tareas</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230073ea'/%3E%3Cpath d='M 12.5 8 v 13.5 h 9' stroke='%23ffffff' stroke-width='4.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="#0073ea"/>
+        <path d="M 12.5 8 v 13.5 h 9" stroke="#ffffff" stroke-width="4.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      lunes
+    </h1>
+    <nav class="tabs">
+      <button class="tab active" data-view="tareas">Tareas</button>
+      <button class="tab" data-view="dashboard">Dashboard</button>
+      <button class="tab" data-view="responsables">Responsables</button>
+      <button class="tab" data-view="config">Configuración</button>
+    </nav>
+    <div class="topbar-actions">
+      <button id="btn-import-xlsx" class="btn secondary" title="Importar archivo .xlsx">Importar Excel</button>
+      <button id="btn-export-json" class="btn secondary" title="Descargar respaldo completo (tareas + configuración)">Exportar JSON</button>
+      <button id="btn-import-json" class="btn secondary">Importar JSON</button>
+      <button id="btn-export-csv" class="btn secondary">Exportar CSV</button>
+    </div>
+    <input type="file" id="file-xlsx" accept=".xlsx,.xls" hidden>
+    <input type="file" id="file-json" accept=".json" hidden>
+  </header>
+
+  <main>
+    <!-- ============ VISTA: TAREAS ============ -->
+    <section id="view-tareas" class="view active">
+      <div class="filters">
+        <input type="search" id="filter-text" placeholder="Buscar tarea, descripción, comentario...">
+        <select id="filter-responsable"><option value="">Responsable: todos</option></select>
+        <select id="filter-estado"><option value="">Estado: todos</option></select>
+        <select id="filter-complejidad"><option value="">Complejidad: todas</option></select>
+        <input type="month" id="filter-mes" title="Filtrar por mes de fecha compromiso">
+        <button id="btn-clear-filters" class="btn secondary small">Limpiar</button>
+      </div>
+      <div class="table-wrap">
+        <table id="tasks-table">
+          <thead>
+            <tr>
+              <th data-sort="tarea">Tarea</th>
+              <th data-sort="responsable">Responsable</th>
+              <th data-sort="apoyo">Apoyo</th>
+              <th data-sort="dependencia" title="Tiene dependencia">Dep.</th>
+              <th data-sort="fechaCompromiso">F. Compromiso</th>
+              <th data-sort="estado">Estado</th>
+              <th data-sort="complejidad">Compl.</th>
+              <th data-sort="vecesAplazada" title="Veces aplazada">Aplaz.</th>
+              <th data-sort="puntaje" title="Puntaje final">Puntaje</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tasks-tbody"></tbody>
+        </table>
+        <p id="tasks-empty" class="empty" hidden>No hay tareas. Crea una nueva o importa tu Excel.</p>
+      </div>
+      <div class="add-task-bar">
+        <button id="btn-new-task" class="btn primary btn-add-task">+ Nueva tarea</button>
+        <button id="btn-cancel-task" class="btn secondary btn-cancel-task" hidden>Cancelar</button>
+      </div>
+    </section>
+
+    <!-- ============ VISTA: DASHBOARD ============ -->
+    <section id="view-dashboard" class="view">
+      <div class="dash-range">
+        <label>Desde<input type="date" id="dash-desde"></label>
+        <label>Hasta<input type="date" id="dash-hasta"></label>
+        <button id="btn-clear-range" class="btn secondary small">Todo el historial</button>
+        <span class="range-note" id="range-note"></span>
+      </div>
+      <div class="cards" id="dash-cards"></div>
+      <div class="dash-grid">
+        <div class="panel">
+          <h2>Tareas por estado</h2>
+          <div id="chart-estados" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h2>Puntaje por responsable</h2>
+          <div id="chart-responsables" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h2>Podio de puntajes</h2>
+          <div id="podio-puntos"></div>
+        </div>
+        <div class="panel">
+          <h2>Podio de entregas anticipadas</h2>
+          <div id="podio-anticipadas"></div>
+        </div>
+        <div class="panel">
+          <h2>Evolución mensual (por fecha compromiso)</h2>
+          <div id="chart-mensual" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h2>Tareas que demandan atención</h2>
+          <div id="alertas"></div>
+        </div>
+      </div>
+      <div class="panel reporte-config">
+        <h2>Generar reporte</h2>
+        <p class="config-note">El reporte usa el rango de fechas definido arriba. Marca las secciones a incluir:</p>
+        <div id="reporte-checks" class="reporte-checks"></div>
+        <button id="btn-generar-reporte" class="btn primary">Generar reporte</button>
+      </div>
+    </section>
+
+    <!-- ============ VISTA: RESPONSABLES ============ -->
+    <section id="view-responsables" class="view">
+      <div class="panel panel-narrow">
+        <h2>Responsables</h2>
+        <p class="config-note">Los responsables de esta lista aparecen en el formulario de tareas. Al importar un Excel, los nombres nuevos se agregan automáticamente.</p>
+        <div class="config-add">
+          <input type="text" id="resp-nombre" placeholder="Nombre del responsable">
+          <button id="btn-add-resp" class="btn primary small">Agregar</button>
+        </div>
+        <table class="config-table" id="responsables-table"></table>
+      </div>
+    </section>
+
+    <!-- ============ VISTA: CONFIGURACIÓN ============ -->
+    <section id="view-config" class="view">
+      <p class="config-note">Edita los pesos de la fórmula. Los cambios se guardan automáticamente y recalculan todos los puntajes.</p>
+      <div class="config-grid">
+        <div class="panel">
+          <h2>1. Puntos por estado</h2>
+          <table class="config-table" id="config-estados"></table>
+        </div>
+        <div class="panel">
+          <h2>2. Factor por complejidad y horas</h2>
+          <table class="config-table" id="config-complejidad"></table>
+        </div>
+        <div class="panel">
+          <h2>3. Penalidad por aplazamiento</h2>
+          <p class="config-inline">
+            <input type="number" id="config-penalidad" step="any" class="input-inline"> puntos restados por cada vez aplazada
+          </p>
+        </div>
+        <div class="panel">
+          <h2>4. Catálogo de puntos extra</h2>
+          <table class="config-table" id="config-extras"></table>
+          <div class="config-add">
+            <input type="text" id="extra-nombre" placeholder="Situación">
+            <input type="number" id="extra-puntos" step="any" placeholder="Puntos">
+            <button id="btn-add-extra" class="btn secondary small">Agregar</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>5. Respaldo automático</h2>
+          <p class="config-note">Elige un archivo en tu disco y la app escribirá ahí un respaldo JSON cada vez que guardes un cambio. Requiere Chrome o Edge. Aun sin esto, los datos quedan en el navegador y puedes usar "Exportar JSON" manual.</p>
+          <p id="backup-status" class="backup-status"></p>
+          <div class="config-add">
+            <button id="btn-backup-choose" class="btn secondary small">Elegir archivo…</button>
+            <button id="btn-backup-disconnect" class="btn danger small" hidden>Desactivar</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel formula-panel">
+        <h2>Fórmula final</h2>
+        <code>Puntaje = (Puntos del estado × Factor de complejidad) − (Veces aplazada × Penalidad) + Puntos extra</code>
+        <button id="btn-reset-config" class="btn danger small">Restaurar valores por defecto</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ REPORTE (imprimible, fuera de main para que el CSS de impresión lo controle) ============ -->
+  <section id="reporte" hidden>
+    <div class="reporte-actions no-print">
+      <button id="btn-imprimir" class="btn primary">Imprimir / Guardar PDF</button>
+      <button id="btn-cerrar-reporte" class="btn secondary">Volver</button>
+    </div>
+    <div id="reporte-contenido"></div>
+  </section>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- ============ POLÍTICA DE PRIVACIDAD (modal) ============ -->
+  <div id="modal-privacidad" class="modal-overlay" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="privacidad-titulo">
+      <h2 id="privacidad-titulo">Política de privacidad</h2>
+      <p><strong>lunes</strong> es una aplicación que funciona completamente en tu navegador. No hay ningún servidor detrás.</p>
+      <h3>Qué datos maneja</h3>
+      <p>Las tareas, responsables y configuraciones que registras se guardan únicamente en el almacenamiento local (localStorage) de tu navegador, en tu propia computadora.</p>
+      <h3>Lo que no hace</h3>
+      <ul>
+        <li>No envía, transmite ni comparte tus datos con nadie.</li>
+        <li>No usa cookies, rastreadores ni herramientas de analítica.</li>
+        <li>No recopila información personal ni estadísticas de uso.</li>
+        <li>Ningún dato sale de tu computadora.</li>
+      </ul>
+      <h3>Respaldos y exportaciones</h3>
+      <p>Si usas "Exportar JSON", "Exportar CSV" o el respaldo automático, los archivos se generan localmente y se guardan donde tú elijas. El cuidado de esos archivos es tu responsabilidad.</p>
+      <h3>Eliminación de datos</h3>
+      <p>Puedes eliminar tus datos en cualquier momento borrando las tareas desde la app o limpiando los datos del sitio en la configuración de tu navegador. Ten en cuenta que al hacerlo la información se pierde definitivamente, sin forma de recuperarla.</p>
+      <h3>Contacto</h3>
+      <p>Desarrollado por <a href="https://carlosganoza.com" target="_blank" rel="noopener">Carlos Ganoza</a>.</p>
+      <div class="modal-actions">
+        <button id="btn-cerrar-privacidad" class="btn primary">Entendido</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    Desarrollado por <a href="https://carlosganoza.com" target="_blank" rel="noopener"><strong>Carlos Ganoza</strong></a> · lunes — seguimiento de tareas · Tus datos se guardan localmente en tu navegador · <a href="#" id="link-privacidad">Política de privacidad</a> · v1.17
+  </footer>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
