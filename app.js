@@ -1282,6 +1282,8 @@ function importXLSX(file) {
         // Crear responsables nuevos automáticamente
         if (ensureResponsable(resp)) nuevosResp++;
         if (ensureResponsable(apoyo)) nuevosResp++;
+        // La cabecera puede venir como "Veces Aplazada", "Veces Aplazado", etc.
+        const keyApl = Object.keys(r).find(k => k.startsWith('veces aplaz'));
         lista.push({
           id: crypto.randomUUID(),
           tarea,
@@ -1293,7 +1295,7 @@ function importXLSX(file) {
           fechaCierre: parseExcelDate(r['fecha de cierre'] || r['fecha cierre'] || ''),
           estado: mapEstadoExcel(r['status'] || r['estado']),
           complejidad: mapComplejidadExcel(r['complejidad'] || r['com']),
-          vecesAplazada: Number(r['veces aplazada']) || 0,
+          vecesAplazada: Number(keyApl ? r[keyApl] : 0) || 0,
           puntosExtra: Number(r['puntos extra']) || 0,
           comentario: String(r['comentario'] || '').trim(),
         });
