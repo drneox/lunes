@@ -1288,6 +1288,7 @@ function mapPlannerRow(r) {
     vecesAplazada: 0,
     puntosExtra: 0,
     comentario: bucket ? `Bucket: ${bucket}` : '',
+    _bucket: bucket, // transitorio: para elegir depósitos al importar; se quita antes de guardar
   };
 }
 
@@ -1358,18 +1359,49 @@ function importXLSX(file) {
       saveResponsables();
       renderResponsables();
       renderFilterOptions();
-      // Sin tareas previas, importar directo; si ya hay, el usuario elige fusionar o reemplazar
-      if (!tasks.length) {
-        aplicarImportacion(lista, esPlanner ? `${sheetName} (Planner)` : sheetName, nuevosResp);
-      } else {
-        abrirModalImportacion(lista, esPlanner ? `${sheetName} (Planner)` : sheetName, nuevosResp);
+      const sheetLabel = esPlanner ? `${sheetName} (Planner)` : sheetName;
+      // Planner con varios depósitos: primero elegir cuáles importar
+      if (esPlanner) {
+        const buckets = new Set(lista.map(t => t._bucket || ''));
+        if (buckets.size > 1) { abrirModalBuckets(lista, sheetLabel, nuevosResp); return; }
+        for (const t of lista) delete t._bucket;
       }
+      continuarImportacion(lista, sheetLabel, nuevosResp);
     } catch (err) {
       console.error(err);
       alert('No se pudo leer el archivo Excel: ' + err.message);
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+// Sin tareas previas, importar directo; si ya hay, el usuario elige fusionar o reemplazar
+function continuarImportacion(lista, sheetName, nuevosResp) {
+  if (!tasks.length) {
+    aplicarImportacion(lista, 'fusionar', sheetName, nuevosResp);
+  } else {
+    abrirModalImportacion(lista, sheetName, nuevosResp);
+  }
+}
+
+let importacionBuckets = null;
+
+function abrirModalBuckets(lista, sheetName, nuevosResp) {
+  importacionBuckets = { lista, sheetName, nuevosResp };
+  const buckets = [...new Set(lista.map(t => t._bucket || ''))].sort();
+  const box = document.getElementById('importar-buckets');
+  box.innerHTML = '';
+  for (const b of buckets) {
+    const n = lista.filter(t => (t._bucket || '') === b).length;
+    const l = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = b;
+    cb.checked = true;
+    l.append(cb, ` ${b || '(Sin depósito)'} (${n})`);
+    box.appendChild(l);
+  }
+  document.getElementById('modal-buckets').hidden = false;
 }
 
 // Fusionar: actualiza las tareas que coincidan (tarea + responsable) y agrega las nuevas.
@@ -1919,6 +1951,22 @@ function init() {
   };
   document.getElementById('btn-import-cancelar').onclick = cerrarModalImp;
   modalImp.addEventListener('click', (e) => { if (e.target === modalImp) cerrarModalImp(); });
+
+  // Importación desde Planner: elegir depósitos (buckets)
+  const modalBuck = document.getElementById('modal-buckets');
+  const cerrarModalBuck = () => { modalBuck.hidden = true; importacionBuckets = null; };
+  document.getElementById('btn-buckets-ok').onclick = () => {
+    if (!importacionBuckets) return cerrarModalBuck();
+    const marcados = new Set([...document.querySelectorAll('#importar-buckets input:checked')].map(i => i.value));
+    const { lista, sheetName, nuevosResp } = importacionBuckets;
+    const filtrada = lista.filter(t => marcados.has(t._bucket || ''));
+    for (const t of filtrada) delete t._bucket;
+    cerrarModalBuck();
+    if (!filtrada.length) { toast('No hay tareas en los depósitos seleccionados'); return; }
+    continuarImportacion(filtrada, sheetName, nuevosResp);
+  };
+  document.getElementById('btn-buckets-cancelar').onclick = cerrarModalBuck;
+  modalBuck.addEventListener('click', (e) => { if (e.target === modalBuck) cerrarModalBuck(); });
   document.getElementById('btn-cerrar-reporte').onclick = () => { document.getElementById('reporte').hidden = true; };
 
   // Respaldo automático
