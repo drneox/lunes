@@ -1305,12 +1305,18 @@ function importXLSX(file) {
   reader.onload = (e) => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      const sheetName = wb.SheetNames.includes('Data') ? 'Data' : wb.SheetNames[0];
-      // Leer como matriz para localizar la fila de cabeceras (el Excel de Planner
-      // trae varias filas de información del plan antes de las columnas)
-      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
-      const headerIdx = aoa.findIndex(fila =>
-        fila.some(c => ['tarea', 'task name'].includes(normalizeKey(c))));
+      // Buscar en TODAS las hojas la que tenga la fila de cabeceras ("Tarea" o "Task Name").
+      // El formato propio usa la hoja "Data"; el Excel de Planner puede traer varias hojas.
+      let sheetName = null, aoa = null, headerIdx = -1;
+      const candidatas = wb.SheetNames.includes('Data')
+        ? ['Data', ...wb.SheetNames.filter(s => s !== 'Data')]
+        : wb.SheetNames;
+      for (const nombre of candidatas) {
+        const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, defval: '' });
+        const idx = filas.findIndex(fila =>
+          fila.some(c => ['tarea', 'task name'].includes(normalizeKey(c))));
+        if (idx >= 0) { sheetName = nombre; aoa = filas; headerIdx = idx; break; }
+      }
       if (headerIdx < 0) {
         toast('No se encontraron tareas. El archivo debe ser tu hoja "Data" o un Excel exportado de Planner.', 5000);
         return;
