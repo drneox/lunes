@@ -1264,27 +1264,34 @@ function mapComplejidadExcel(s) {
   return 'baja';
 }
 
-// Convierte una fila del Excel de Planner ("Export plan to Excel") al formato de la app
+// Busca el valor de una columna por varios nombres posibles de cabecera
+function col(r, ...nombres) {
+  for (const n of nombres) if (r[n] !== undefined && r[n] !== '') return r[n];
+  return '';
+}
+
+// Convierte una fila del Excel de Planner ("Export plan to Excel" / "Exportar plan a Excel")
 function mapPlannerRow(r) {
-  const tarea = String(r['task name'] || '').trim();
+  const tarea = String(col(r, 'task name', 'nombre de la tarea', 'nombre de tarea')).trim();
   if (!tarea) return null;
   // Varios asignados vienen separados por ";" o ",": el primero es responsable, el segundo apoyo
-  const asignados = String(r['assigned to'] || '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
-  const bucket = String(r['bucket name'] || '').trim();
-  const completada = normalizeKey(r['progress']).startsWith('completed');
-  const fechaCompromiso = parseExcelDate(r['due date']);
-  const fechaCierre = parseExcelDate(r['completed date']);
+  const asignados = String(col(r, 'assigned to', 'asignado a', 'asignados a')).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+  const bucket = String(col(r, 'bucket name', 'nombre del deposito', 'nombre de deposito', 'deposito', 'nombre del cubo', 'cubo')).trim();
+  const prog = normalizeKey(col(r, 'progress', 'progreso'));
+  const completada = prog.startsWith('completed') || prog.startsWith('completada') || prog.startsWith('completado');
+  const fechaCompromiso = parseExcelDate(col(r, 'due date', 'fecha de vencimiento', 'fecha vencimiento'));
+  const fechaCierre = parseExcelDate(col(r, 'completed date', 'fecha de finalizacion', 'fecha finalizacion', 'fecha de completado'));
   return {
     id: crypto.randomUUID(),
     tarea,
-    descripcion: String(r['description'] || '').trim(),
+    descripcion: String(col(r, 'description', 'descripcion')).trim(),
     responsable: asignados[0] || '',
     apoyo: asignados[1] || '',
     dependencia: false,
     fechaCompromiso,
     fechaCierre,
     estado: completada ? (sugerirEstadoPorCierre(fechaCierre, fechaCompromiso) || 'a-tiempo') : '',
-    complejidad: mapPrioridadPlanner(r['priority']),
+    complejidad: mapPrioridadPlanner(col(r, 'priority', 'prioridad')),
     vecesAplazada: 0,
     puntosExtra: 0,
     comentario: bucket ? `Bucket: ${bucket}` : '',
@@ -1294,9 +1301,9 @@ function mapPlannerRow(r) {
 
 function mapPrioridadPlanner(s) {
   const k = normalizeKey(s);
-  if (k.startsWith('urgent')) return 'critica';
-  if (k.startsWith('important')) return 'alta';
-  if (k.startsWith('low')) return 'baja';
+  if (k.startsWith('urgent')) return 'critica';   // Urgent / Urgente
+  if (k.startsWith('important')) return 'alta';   // Important / Importante
+  if (k.startsWith('low') || k.startsWith('baja')) return 'baja';
   return 'media';
 }
 
@@ -1305,8 +1312,10 @@ function importXLSX(file) {
   reader.onload = (e) => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      // Buscar en TODAS las hojas la que tenga la fila de cabeceras ("Tarea" o "Task Name").
-      // El formato propio usa la hoja "Data"; el Excel de Planner puede traer varias hojas.
+      // Buscar en TODAS las hojas la que tenga la fila de cabeceras.
+      // El formato propio usa la hoja "Data"; el Excel de Planner puede traer
+      // varias hojas y cabeceras en inglés ("Task Name") o español ("Nombre de la tarea").
+      const CABECERAS_TAREA = ['tarea', 'task name', 'nombre de la tarea', 'nombre de tarea'];
       let sheetName = null, aoa = null, headerIdx = -1;
       const candidatas = wb.SheetNames.includes('Data')
         ? ['Data', ...wb.SheetNames.filter(s => s !== 'Data')]
@@ -1314,15 +1323,16 @@ function importXLSX(file) {
       for (const nombre of candidatas) {
         const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, defval: '' });
         const idx = filas.findIndex(fila =>
-          fila.some(c => ['tarea', 'task name'].includes(normalizeKey(c))));
+          fila.some(c => CABECERAS_TAREA.includes(normalizeKey(c))));
         if (idx >= 0) { sheetName = nombre; aoa = filas; headerIdx = idx; break; }
       }
       if (headerIdx < 0) {
-        toast('No se encontraron tareas. El archivo debe ser tu hoja "Data" o un Excel exportado de Planner.', 5000);
+        toast('No se encontraron tareas. El archivo debe ser tu hoja "Data" o un Excel exportado de Planner (columna "Task Name" o "Nombre de la tarea").', 6000);
         return;
       }
       const headers = aoa[headerIdx].map(normalizeKey);
-      const esPlanner = headers.includes('task name');
+      const esPlanner = headers.some(h =>
+        ['task name', 'nombre de la tarea', 'nombre de tarea', 'progress', 'progreso'].includes(h));
       const lista = [];
       let nuevosResp = 0;
       for (const fila of aoa.slice(headerIdx + 1)) {
