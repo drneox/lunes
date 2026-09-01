@@ -1959,6 +1959,8 @@ function init() {
     else openInlineForm(null);
   };
   document.getElementById('btn-cancel-task').onclick = closeInlineForm;
+  // Botón superior: siempre abre un formulario nuevo (nunca se mueve ni se convierte en "Guardar")
+  document.getElementById('btn-new-task-top').onclick = () => openInlineForm(null);
 
   // Responsables
   document.getElementById('btn-add-resp').onclick = addResponsable;
