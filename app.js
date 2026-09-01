@@ -1219,7 +1219,8 @@ const MESES_MAP = {
 function parseExcelDate(v) {
   if (v == null || v === '') return '';
   if (v instanceof Date && !isNaN(v)) {
-    return v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0') + '-' + String(v.getDate()).padStart(2, '0');
+    // SheetJS devuelve la medianoche UTC: usar getters UTC para no correr el día
+    return v.getUTCFullYear() + '-' + String(v.getUTCMonth() + 1).padStart(2, '0') + '-' + String(v.getUTCDate()).padStart(2, '0');
   }
   if (typeof v === 'number') {
     // Serial de Excel
@@ -1263,18 +1264,71 @@ function mapComplejidadExcel(s) {
   return 'baja';
 }
 
+// Convierte una fila del Excel de Planner ("Export plan to Excel") al formato de la app
+function mapPlannerRow(r) {
+  const tarea = String(r['task name'] || '').trim();
+  if (!tarea) return null;
+  // Varios asignados vienen separados por ";" o ",": el primero es responsable, el segundo apoyo
+  const asignados = String(r['assigned to'] || '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
+  const bucket = String(r['bucket name'] || '').trim();
+  const completada = normalizeKey(r['progress']).startsWith('completed');
+  const fechaCompromiso = parseExcelDate(r['due date']);
+  const fechaCierre = parseExcelDate(r['completed date']);
+  return {
+    id: crypto.randomUUID(),
+    tarea,
+    descripcion: String(r['description'] || '').trim(),
+    responsable: asignados[0] || '',
+    apoyo: asignados[1] || '',
+    dependencia: false,
+    fechaCompromiso,
+    fechaCierre,
+    estado: completada ? (sugerirEstadoPorCierre(fechaCierre, fechaCompromiso) || 'a-tiempo') : '',
+    complejidad: mapPrioridadPlanner(r['priority']),
+    vecesAplazada: 0,
+    puntosExtra: 0,
+    comentario: bucket ? `Bucket: ${bucket}` : '',
+  };
+}
+
+function mapPrioridadPlanner(s) {
+  const k = normalizeKey(s);
+  if (k.startsWith('urgent')) return 'critica';
+  if (k.startsWith('important')) return 'alta';
+  if (k.startsWith('low')) return 'baja';
+  return 'media';
+}
+
 function importXLSX(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
       const sheetName = wb.SheetNames.includes('Data') ? 'Data' : wb.SheetNames[0];
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+      // Leer como matriz para localizar la fila de cabeceras (el Excel de Planner
+      // trae varias filas de información del plan antes de las columnas)
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+      const headerIdx = aoa.findIndex(fila =>
+        fila.some(c => ['tarea', 'task name'].includes(normalizeKey(c))));
+      if (headerIdx < 0) {
+        toast('No se encontraron tareas. El archivo debe ser tu hoja "Data" o un Excel exportado de Planner.', 5000);
+        return;
+      }
+      const headers = aoa[headerIdx].map(normalizeKey);
+      const esPlanner = headers.includes('task name');
       const lista = [];
       let nuevosResp = 0;
-      for (const row of rows) {
+      for (const fila of aoa.slice(headerIdx + 1)) {
         const r = {};
-        for (const [k, v] of Object.entries(row)) r[normalizeKey(k)] = v;
+        headers.forEach((h, i) => { if (h) r[h] = fila[i]; });
+        if (esPlanner) {
+          const nt = mapPlannerRow(r);
+          if (!nt) continue;
+          if (ensureResponsable(nt.responsable)) nuevosResp++;
+          if (ensureResponsable(nt.apoyo)) nuevosResp++;
+          lista.push(nt);
+          continue;
+        }
         const tarea = String(r['tarea'] || '').trim();
         if (!tarea) continue;
         const resp = String(r['responsable'] || '').trim();
@@ -1306,9 +1360,9 @@ function importXLSX(file) {
       renderFilterOptions();
       // Sin tareas previas, importar directo; si ya hay, el usuario elige fusionar o reemplazar
       if (!tasks.length) {
-        aplicarImportacion(lista, 'fusionar', sheetName, nuevosResp);
+        aplicarImportacion(lista, esPlanner ? `${sheetName} (Planner)` : sheetName, nuevosResp);
       } else {
-        abrirModalImportacion(lista, sheetName, nuevosResp);
+        abrirModalImportacion(lista, esPlanner ? `${sheetName} (Planner)` : sheetName, nuevosResp);
       }
     } catch (err) {
       console.error(err);
