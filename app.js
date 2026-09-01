@@ -20,7 +20,7 @@ const ESTADOS = {
   'suspendido': { label: '⏸️ Suspendido',               auto: false, color: '#a25ddc' },
   'cancelado':  { label: '❌ Cancelado',                 auto: false, color: '#e2445c' },
 };
-const ESTADOS_MANUALES = ['riesgo', 'anticipado', 'a-tiempo', 'tarde', 'suspendido', 'cancelado'];
+const ESTADOS_MANUALES = ['riesgo', 'vencida', 'anticipado', 'a-tiempo', 'tarde', 'suspendido', 'cancelado'];
 
 const COMPLEJIDADES = ['baja', 'media', 'alta', 'critica'];
 const COMPLEJIDAD_LABEL = { baja: 'Baja', media: 'Media', alta: 'Alta', critica: 'Muy Alta' };
@@ -903,27 +903,46 @@ function renderDashboard() {
   renderBarChart('chart-responsables', porResponsable, 'puntos');
   const { puntos, anticipadas } = statsPorResponsable(list);
   renderPodio('podio-puntos', puntos, 'pts');
-  renderPodio('podio-anticipadas', anticipadas, 'anticipadas');
+  renderPodio('podio-anticipadas', anticipadas, 'anticipadas', 2);
   renderMensual(list);
   renderAlertas(list);
 }
 
 const MEDALLAS = ['🥇', '🥈', '🥉'];
 
-function renderPodio(elId, dataByLabel, unit) {
+// Ranking con empates compartiendo puesto (el puesto depende del valor, no del orden).
+// Con `min`, solo pasan los que tengan al menos `min`; si nadie llega, se muestra solo al primero.
+function rankingPodio(dataByLabel, min) {
+  const entries = Object.entries(dataByLabel).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return [];
+  let list = entries;
+  if (min != null) {
+    const filtradas = entries.filter(([, v]) => v >= min);
+    list = filtradas.length ? filtradas : entries.slice(0, 1);
+  }
+  const rows = [];
+  for (const [nombre, valor] of list) {
+    const rank = 1 + list.filter(([, v]) => v > valor).length;
+    if (rank > 3) break;
+    rows.push([nombre, valor, rank]);
+  }
+  return rows;
+}
+
+function renderPodio(elId, dataByLabel, unit, min) {
   const el = document.getElementById(elId);
   el.innerHTML = '';
-  const entries = Object.entries(dataByLabel).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
-  if (!entries.length) {
+  const items = rankingPodio(dataByLabel, min);
+  if (!items.length) {
     el.innerHTML = '<p class="podio-empty">Sin datos en el rango seleccionado.</p>';
     return;
   }
-  entries.forEach(([nombre, valor], i) => {
+  for (const [nombre, valor, rank] of items) {
     const div = document.createElement('div');
-    div.className = 'podio-item' + (i === 0 ? ' first' : '');
+    div.className = 'podio-item' + (rank === 1 ? ' first' : '');
     const medal = document.createElement('span');
     medal.className = 'medal';
-    medal.textContent = MEDALLAS[i];
+    medal.textContent = MEDALLAS[rank - 1];
     const name = document.createElement('span');
     name.textContent = nombre;
     const val = document.createElement('span');
@@ -931,7 +950,7 @@ function renderPodio(elId, dataByLabel, unit) {
     val.textContent = `${valor} ${unit}`;
     div.append(medal, name, val);
     el.appendChild(div);
-  });
+  }
 }
 
 function renderDonut(counts) {
@@ -1251,7 +1270,7 @@ function importXLSX(file) {
       const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
       const sheetName = wb.SheetNames.includes('Data') ? 'Data' : wb.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
-      let imported = 0;
+      const lista = [];
       let nuevosResp = 0;
       for (const row of rows) {
         const r = {};
@@ -1263,7 +1282,7 @@ function importXLSX(file) {
         // Crear responsables nuevos automáticamente
         if (ensureResponsable(resp)) nuevosResp++;
         if (ensureResponsable(apoyo)) nuevosResp++;
-        tasks.push({
+        lista.push({
           id: crypto.randomUUID(),
           tarea,
           descripcion: String(r['descripcion'] || '').trim(),
@@ -1278,19 +1297,62 @@ function importXLSX(file) {
           puntosExtra: Number(r['puntos extra']) || 0,
           comentario: String(r['comentario'] || '').trim(),
         });
-        imported++;
       }
-      saveTasks();
+      if (!lista.length) { toast('No se encontraron tareas en el archivo'); return; }
       saveResponsables();
-      renderAll();
       renderResponsables();
-      toast(`${imported} tareas importadas desde "${sheetName}"` + (nuevosResp ? ` · ${nuevosResp} responsables nuevos` : ''));
+      renderFilterOptions();
+      // Sin tareas previas, importar directo; si ya hay, el usuario elige fusionar o reemplazar
+      if (!tasks.length) {
+        aplicarImportacion(lista, 'fusionar', sheetName, nuevosResp);
+      } else {
+        abrirModalImportacion(lista, sheetName, nuevosResp);
+      }
     } catch (err) {
       console.error(err);
       alert('No se pudo leer el archivo Excel: ' + err.message);
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+// Fusionar: actualiza las tareas que coincidan (tarea + responsable) y agrega las nuevas.
+// Reemplazar: borra las actuales y deja solo las del archivo.
+function aplicarImportacion(lista, modo, sheetName, nuevosResp) {
+  let nuevas = 0, actualizadas = 0;
+  if (modo === 'reemplazar') tasks = [];
+  const porClave = new Map(tasks.map(t => [normalizeKey(t.tarea) + '|' + normalizeKey(t.responsable), t]));
+  for (const nt of lista) {
+    const clave = normalizeKey(nt.tarea) + '|' + normalizeKey(nt.responsable);
+    const ex = porClave.get(clave);
+    if (ex) {
+      const { id, ...campos } = nt; // conserva id, historial de aplazamientos y fecha original
+      Object.assign(ex, campos);
+      actualizadas++;
+    } else {
+      tasks.push(nt);
+      porClave.set(clave, nt);
+      nuevas++;
+    }
+  }
+  saveTasks();
+  renderAll();
+  const detalle = modo === 'reemplazar'
+    ? `${nuevas} tareas importadas (se reemplazó lo anterior)`
+    : `${nuevas} nuevas · ${actualizadas} actualizadas`;
+  toast(`"${sheetName}": ${detalle}` + (nuevosResp ? ` · ${nuevosResp} responsables nuevos` : ''), 5000);
+}
+
+let importacionPendiente = null;
+
+function abrirModalImportacion(lista, sheetName, nuevosResp) {
+  importacionPendiente = { lista, sheetName, nuevosResp };
+  const porClave = new Map(tasks.map(t => [normalizeKey(t.tarea) + '|' + normalizeKey(t.responsable), true]));
+  const coinciden = lista.filter(nt => porClave.has(normalizeKey(nt.tarea) + '|' + normalizeKey(nt.responsable))).length;
+  document.getElementById('importar-resumen').textContent =
+    `El archivo "${sheetName}" tiene ${lista.length} tareas y ya tienes ${tasks.length} registradas ` +
+    `(${coinciden} coinciden). Elige cómo importar:`;
+  document.getElementById('modal-importar').hidden = false;
 }
 
 function exportJSON() {
@@ -1612,14 +1674,12 @@ function generarReporte() {
   }
 
   if (marcadas.includes('podio-puntos')) {
-    const rows = Object.entries(puntos).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]).slice(0, 3)
-      .map(([r, v], i) => [MEDALLAS[i], r, v]);
+    const rows = rankingPodio(puntos).map(([r, v, rank]) => [MEDALLAS[rank - 1], r, v]);
     html += '<h2>Podio de puntajes</h2>' + (rows.length ? repTable(['Puesto', 'Responsable', 'Puntos'], rows) : '<p>Sin datos.</p>');
   }
 
   if (marcadas.includes('podio-anticipadas')) {
-    const rows = Object.entries(anticipadas).sort((a, b) => b[1] - a[1]).slice(0, 3)
-      .map(([r, v], i) => [MEDALLAS[i], r, v]);
+    const rows = rankingPodio(anticipadas, 2).map(([r, v, rank]) => [MEDALLAS[rank - 1], r, v]);
     html += '<h2>Podio de entregas anticipadas</h2>' + (rows.length ? repTable(['Puesto', 'Responsable', 'Anticipadas'], rows) : '<p>Sin datos.</p>');
   }
 
@@ -1785,6 +1845,24 @@ function init() {
   document.getElementById('btn-cerrar-privacidad').onclick = () => { modalPriv.hidden = true; };
   modalPriv.addEventListener('click', (e) => { if (e.target === modalPriv) modalPriv.hidden = true; });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modalPriv.hidden = true; });
+
+  // Importación de Excel: elegir fusionar o reemplazar (modal)
+  const modalImp = document.getElementById('modal-importar');
+  const cerrarModalImp = () => { modalImp.hidden = true; importacionPendiente = null; };
+  document.getElementById('btn-import-fusionar').onclick = () => {
+    if (!importacionPendiente) return cerrarModalImp();
+    const { lista, sheetName, nuevosResp } = importacionPendiente;
+    cerrarModalImp();
+    aplicarImportacion(lista, 'fusionar', sheetName, nuevosResp);
+  };
+  document.getElementById('btn-import-reemplazar').onclick = () => {
+    if (!importacionPendiente) return cerrarModalImp();
+    const { lista, sheetName, nuevosResp } = importacionPendiente;
+    cerrarModalImp();
+    aplicarImportacion(lista, 'reemplazar', sheetName, nuevosResp);
+  };
+  document.getElementById('btn-import-cancelar').onclick = cerrarModalImp;
+  modalImp.addEventListener('click', (e) => { if (e.target === modalImp) cerrarModalImp(); });
   document.getElementById('btn-cerrar-reporte').onclick = () => { document.getElementById('reporte').hidden = true; };
 
   // Respaldo automático
