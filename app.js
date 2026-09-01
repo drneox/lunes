@@ -1533,15 +1533,24 @@ const REPORTE_SECCIONES = [
   ['atencion', 'Tareas que demandan atención'],
 ];
 
+const LS_REPORTE_CHECKS = 'seguimiento.reporteChecks';
+
 function renderReporteChecks() {
   const box = document.getElementById('reporte-checks');
   box.innerHTML = '';
+  let guardado = null;
+  try { guardado = JSON.parse(localStorage.getItem(LS_REPORTE_CHECKS)); } catch { }
   for (const [id, label] of REPORTE_SECCIONES) {
     const l = document.createElement('label');
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = id;
-    cb.checked = true; // por defecto todas
+    cb.checked = guardado && id in guardado ? !!guardado[id] : true; // por defecto todas
+    cb.addEventListener('change', () => {
+      const estado = {};
+      for (const i of box.querySelectorAll('input')) estado[i.value] = i.checked;
+      localStorage.setItem(LS_REPORTE_CHECKS, JSON.stringify(estado));
+    });
     l.append(cb, ' ' + label);
     box.appendChild(l);
   }
