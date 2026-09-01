@@ -1331,7 +1331,7 @@ function mapPlannerRow(r) {
   // Varios asignados vienen separados por ";" o ",": el primero es responsable, el segundo apoyo
   const asignados = String(col(r, 'assigned to', 'asignado a', 'asignados a')).split(/[;,]/).map(s => s.trim()).filter(Boolean);
   const bucket = String(col(r, 'bucket name', 'nombre del deposito', 'nombre de deposito', 'deposito', 'nombre del cubo', 'cubo')).trim();
-  const prog = normalizeKey(col(r, 'progress', 'progreso'));
+  const prog = normalizeKey(col(r, 'progress', 'progreso', 'estado', 'status'));
   const completada = prog.startsWith('completed') || prog.startsWith('completada') || prog.startsWith('completado');
   const fechaCompromiso = parseExcelDate(col(r, 'due date', 'fecha de vencimiento', 'fecha vencimiento'));
   const fechaCierre = parseExcelDate(col(r, 'completed date', 'fecha de finalizacion', 'fecha finalizacion', 'fecha de completado'));
