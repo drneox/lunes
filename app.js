@@ -85,6 +85,34 @@ function ensureResponsable(nombre) {
   return true;
 }
 
+// Match por similitud: si las palabras de un nombre contienen todas las de uno
+// existente (o al revés), se asume la misma persona. Mínimo 2 palabras en común
+// y gana el candidato con más palabras cruzadas. Ignora mayúsculas y acentos.
+function nombreSimilar(nombre) {
+  const tokens = normalizeKey(nombre).split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return null;
+  const setA = new Set(tokens);
+  let mejor = null, mejorCruce = 0;
+  for (const r of responsables) {
+    const rt = normalizeKey(r).split(/\s+/).filter(Boolean);
+    const setB = new Set(rt);
+    const cruce = tokens.filter(t => setB.has(t)).length;
+    const esSubconjunto = tokens.every(t => setB.has(t)) || rt.every(t => setA.has(t));
+    if (esSubconjunto && cruce >= 2 && cruce > mejorCruce) { mejor = r; mejorCruce = cruce; }
+  }
+  return mejor;
+}
+
+// Al importar: devuelve el nombre canónico ya registrado si coincide exacto
+// (normalizado) o por similitud; si no, el nombre tal cual vino.
+function resolverNombre(nombre) {
+  const n = (nombre || '').trim();
+  if (!n) return '';
+  const exacto = responsables.find(r => normalizeKey(r) === normalizeKey(n));
+  if (exacto) return exacto;
+  return nombreSimilar(n) || n;
+}
+
 /* ---------- Utilidades de fecha ---------- */
 function todayISO() {
   const d = new Date();
@@ -1341,6 +1369,8 @@ function importXLSX(file) {
         if (esPlanner) {
           const nt = mapPlannerRow(r);
           if (!nt) continue;
+          nt.responsable = resolverNombre(nt.responsable);
+          nt.apoyo = resolverNombre(nt.apoyo);
           if (ensureResponsable(nt.responsable)) nuevosResp++;
           if (ensureResponsable(nt.apoyo)) nuevosResp++;
           lista.push(nt);
@@ -1348,8 +1378,8 @@ function importXLSX(file) {
         }
         const tarea = String(r['tarea'] || '').trim();
         if (!tarea) continue;
-        const resp = String(r['responsable'] || '').trim();
-        const apoyo = String(r['apoyo'] || '').trim();
+        const resp = resolverNombre(String(r['responsable'] || ''));
+        const apoyo = resolverNombre(String(r['apoyo'] || ''));
         // Crear responsables nuevos automáticamente
         if (ensureResponsable(resp)) nuevosResp++;
         if (ensureResponsable(apoyo)) nuevosResp++;
