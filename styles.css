@@ -122,6 +122,8 @@ th:hover { color: var(--text); }
 th .arrow { font-size: 10px; margin-left: 4px; }
 tbody tr:hover { background: var(--panel-2); }
 td.tarea-cell { white-space: normal; min-width: 200px; max-width: 320px; }
+.tarea-link { color: var(--accent-2); text-decoration: underline; font-weight: 600; }
+.tarea-link:hover { color: var(--accent); }
 td .comment { display: block; color: var(--muted); font-size: 12px; white-space: normal; }
 .empty { padding: 30px; text-align: center; color: var(--muted); }
 .add-task-bar { display: flex; gap: 8px; margin-top: 10px; }

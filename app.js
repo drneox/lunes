@@ -40,6 +40,18 @@ const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'O
 
 /* ---------- Estado y persistencia ---------- */
 let tasks = load(LS_TASKS, []);
+// Migración: enlaces incrustados en el comentario pasan al campo `enlace`
+// (se persiste al final de init, cuando el estado ya está completo)
+let migroEnlaces = false;
+for (const t of tasks) {
+  if (t.enlace || !t.comentario) continue;
+  const m = String(t.comentario).match(/https?:\/\/\S+/);
+  if (!m) continue;
+  t.enlace = m[0];
+  t.comentario = t.comentario.replace(m[0], '')
+    .replace(/\s*·\s*·/g, ' · ').replace(/\s*·\s*$/, '').replace(/^\s*·\s*/, '').trim();
+  migroEnlaces = true;
+}
 // Merge por sección para no perder claves nuevas al actualizar la app
 const storedConfig = load(LS_CONFIG, {});
 let config = structuredClone(DEFAULT_CONFIG);
@@ -238,25 +250,23 @@ function renderTasks() {
 
     const tdTarea = document.createElement('td');
     tdTarea.className = 'tarea-cell';
-    tdTarea.textContent = t.tarea;
+    if (t.enlace) {
+      // Título clicable cuando la tarea tiene enlace (p. ej. a Planner)
+      const a = document.createElement('a');
+      a.href = t.enlace;
+      a.textContent = t.tarea;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.className = 'tarea-link';
+      a.title = t.enlace;
+      tdTarea.appendChild(a);
+    } else {
+      tdTarea.textContent = t.tarea;
+    }
     if (t.comentario) {
       const c = document.createElement('span');
       c.className = 'comment';
-      // URLs del comentario (p. ej. enlace a la tarjeta de Planner) se vuelven clicables
-      const partes = String(t.comentario).split(/(https?:\/\/[^\s]+)/g);
-      for (const p of partes) {
-        if (/^https?:\/\//.test(p)) {
-          const a = document.createElement('a');
-          a.href = p;
-          a.textContent = '🔗 abrir';
-          a.target = '_blank';
-          a.rel = 'noopener';
-          a.title = p;
-          c.appendChild(a);
-        } else if (p) {
-          c.appendChild(document.createTextNode(p));
-        }
-      }
+      c.textContent = t.comentario;
       tdTarea.appendChild(c);
     }
     tr.appendChild(tdTarea);
@@ -1337,12 +1347,9 @@ function mapPlannerRow(r) {
   const fechaCierre = parseExcelDate(col(r, 'completed date', 'fecha de finalizacion', 'fecha finalizacion', 'fecha de completado'));
   // Enlace directo a la tarjeta (requiere el tenant en Configuración)
   const taskId = String(col(r, 'task id', 'id. de tarea', 'id de tarea')).trim();
-  const link = taskId && config.plannerTenant
+  const enlace = taskId && config.plannerTenant
     ? `https://tasks.office.com/${config.plannerTenant}/Home/Task/${taskId}`
     : '';
-  const partes = [];
-  if (bucket) partes.push(`Bucket: ${bucket}`);
-  if (link) partes.push(link);
   return {
     id: crypto.randomUUID(),
     tarea,
@@ -1356,7 +1363,8 @@ function mapPlannerRow(r) {
     complejidad: mapPrioridadPlanner(col(r, 'priority', 'prioridad')),
     vecesAplazada: 0,
     puntosExtra: 0,
-    comentario: partes.join(' · '),
+    comentario: bucket ? `Bucket: ${bucket}` : '',
+    enlace,
     _bucket: bucket, // transitorio: para elegir depósitos al importar; se quita antes de guardar
   };
 }
@@ -2054,6 +2062,7 @@ function init() {
   renderBackupStatus();
   checkBackupReminder();
 
+  if (migroEnlaces) saveTasks(); // persistir la migración de enlaces
   renderAll();
 }
 
