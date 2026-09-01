@@ -74,7 +74,7 @@ body {
 .btn.icon { padding: 4px 8px; font-size: 12px; }
 
 /* ---------- Layout ---------- */
-main { padding: 16px 24px; max-width: none; margin: 0 auto; }
+main { padding: 16px; max-width: 1500px; margin: 0 auto; }
 .view { display: none; }
 .view.active { display: block; }
 
