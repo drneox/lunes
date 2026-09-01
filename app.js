@@ -30,6 +30,8 @@ const DEFAULT_CONFIG = {
   factorComplejidad: { baja: 1, media: 2, alta: 3, critica: 5 },
   horasComplejidad: { baja: 3, media: 6, alta: 12, critica: null },
   penalidadAplazamiento: 2,
+  // Dominio del tenant de Microsoft 365 para armar enlaces a tarjetas de Planner
+  plannerTenant: '',
   // El catálogo de puntos extra empieza vacío: cada quien registra las suyas desde la app
   extrasCatalogo: [],
 };
@@ -54,6 +56,7 @@ if (storedConfig.horasComplejidad) {
   }
 }
 if (storedConfig.penalidadAplazamiento != null) config.penalidadAplazamiento = storedConfig.penalidadAplazamiento;
+if (storedConfig.plannerTenant != null) config.plannerTenant = storedConfig.plannerTenant;
 if (Array.isArray(storedConfig.extrasCatalogo)) config.extrasCatalogo = storedConfig.extrasCatalogo;
 // Si ya había tareas pero no lista de responsables, se deriva de las tareas (migración)
 let responsables = load(LS_RESP, null);
@@ -239,7 +242,21 @@ function renderTasks() {
     if (t.comentario) {
       const c = document.createElement('span');
       c.className = 'comment';
-      c.textContent = t.comentario;
+      // URLs del comentario (p. ej. enlace a la tarjeta de Planner) se vuelven clicables
+      const partes = String(t.comentario).split(/(https?:\/\/[^\s]+)/g);
+      for (const p of partes) {
+        if (/^https?:\/\//.test(p)) {
+          const a = document.createElement('a');
+          a.href = p;
+          a.textContent = '🔗 abrir';
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.title = p;
+          c.appendChild(a);
+        } else if (p) {
+          c.appendChild(document.createTextNode(p));
+        }
+      }
       tdTarea.appendChild(c);
     }
     tr.appendChild(tdTarea);
@@ -1193,6 +1210,15 @@ function renderConfig() {
     toast('Penalidad actualizada');
   };
 
+  // Tenant de Planner para enlaces a tarjetas al importar
+  const inpTenant = document.getElementById('config-planner-tenant');
+  inpTenant.value = config.plannerTenant || '';
+  inpTenant.onchange = () => {
+    config.plannerTenant = inpTenant.value.trim();
+    saveConfig();
+    toast(config.plannerTenant ? 'Los próximos imports de Planner incluirán el enlace a cada tarjeta' : 'Dominio de Planner quitado');
+  };
+
   // Catálogo de extras
   renderExtrasCatalog();
 }
@@ -1309,6 +1335,14 @@ function mapPlannerRow(r) {
   const completada = prog.startsWith('completed') || prog.startsWith('completada') || prog.startsWith('completado');
   const fechaCompromiso = parseExcelDate(col(r, 'due date', 'fecha de vencimiento', 'fecha vencimiento'));
   const fechaCierre = parseExcelDate(col(r, 'completed date', 'fecha de finalizacion', 'fecha finalizacion', 'fecha de completado'));
+  // Enlace directo a la tarjeta (requiere el tenant en Configuración)
+  const taskId = String(col(r, 'task id', 'id. de tarea', 'id de tarea')).trim();
+  const link = taskId && config.plannerTenant
+    ? `https://tasks.office.com/${config.plannerTenant}/Home/Task/${taskId}`
+    : '';
+  const partes = [];
+  if (bucket) partes.push(`Bucket: ${bucket}`);
+  if (link) partes.push(link);
   return {
     id: crypto.randomUUID(),
     tarea,
@@ -1322,7 +1356,7 @@ function mapPlannerRow(r) {
     complejidad: mapPrioridadPlanner(col(r, 'priority', 'prioridad')),
     vecesAplazada: 0,
     puntosExtra: 0,
-    comentario: bucket ? `Bucket: ${bucket}` : '',
+    comentario: partes.join(' · '),
     _bucket: bucket, // transitorio: para elegir depósitos al importar; se quita antes de guardar
   };
 }

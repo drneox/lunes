@@ -267,6 +267,7 @@ td .comment { display: block; color: var(--muted); font-size: 12px; white-space:
 .backup-status.ok { color: var(--green); }
 .backup-status.warn { color: var(--yellow); }
 .input-inline { width: 80px; text-align: center; }
+.input-tenant { width: 230px; text-align: left; }
 .config-add { display: flex; gap: 8px; margin-top: 10px; }
 .config-add input[type="text"] { flex: 1; min-width: 0; }
 .config-add input[type="number"] { width: 90px; }
