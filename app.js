@@ -1766,6 +1766,7 @@ function init() {
     renderDashboard();
   };
   renderReporteChecks();
+  initDashSecciones();
   document.getElementById('btn-generar-reporte').onclick = generarReporte;
   document.getElementById('btn-imprimir').onclick = () => window.print();
 
@@ -1798,6 +1799,36 @@ function addResponsable() {
   renderResponsables();
   renderFilterOptions();
   toast('Responsable agregado');
+}
+
+/* ============================================================
+   DASHBOARD: plegar secciones (estado persistido por sección)
+   ============================================================ */
+const LS_DASH_SEC = 'seguimiento.dashSecciones';
+
+function initDashSecciones() {
+  let plegadas = {};
+  try { plegadas = JSON.parse(localStorage.getItem(LS_DASH_SEC)) || {}; } catch { }
+  for (const panel of document.querySelectorAll('#view-dashboard .panel[data-sec]')) {
+    const h2 = panel.querySelector('h2');
+    if (!h2) continue;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sec-toggle';
+    const aplicar = (plegada) => {
+      panel.classList.toggle('sec-plegada', plegada);
+      btn.textContent = plegada ? '▸' : '▾';
+      btn.title = plegada ? 'Desplegar sección' : 'Plegar sección';
+    };
+    btn.onclick = () => {
+      const plegada = !panel.classList.contains('sec-plegada');
+      aplicar(plegada);
+      plegadas[panel.dataset.sec] = plegada;
+      localStorage.setItem(LS_DASH_SEC, JSON.stringify(plegadas));
+    };
+    h2.appendChild(btn);
+    aplicar(!!plegadas[panel.dataset.sec]);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

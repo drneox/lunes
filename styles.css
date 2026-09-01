@@ -223,6 +223,12 @@ td .comment { display: block; color: var(--muted); font-size: 12px; white-space:
   box-shadow: var(--shadow);
 }
 .panel h2 { font-size: 14px; margin-bottom: 12px; color: var(--text); }
+/* Plegar secciones del dashboard */
+#view-dashboard .panel > h2 { display: flex; align-items: center; gap: 8px; }
+.sec-toggle { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; padding: 2px 8px; border-radius: 6px; }
+.sec-toggle:hover { background: var(--panel-2); color: var(--text); }
+.sec-plegada > *:not(h2) { display: none; }
+.sec-plegada > h2 { margin-bottom: 0; }
 
 /* ---------- Gráficos SVG ---------- */
 .chart svg { width: 100%; height: auto; display: block; }
