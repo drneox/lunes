@@ -343,6 +343,13 @@ function renderFilterOptions() {
 function closeInlineForm() {
   document.querySelector('#tasks-table tr.inline-form')?.remove();
   document.querySelector('#tasks-table tr.row-hidden')?.classList.remove('row-hidden');
+  // Si la barra guardar/cancelar estaba junto al formulario (edición), volver a su sitio
+  const acciones = document.querySelector('#tasks-table tr.inline-actions-row');
+  if (acciones) {
+    const barra = acciones.querySelector('.add-task-bar');
+    if (barra) document.querySelector('.table-wrap').insertAdjacentElement('afterend', barra);
+    acciones.remove();
+  }
   editingId = null;
   // Restaurar la barra inferior
   const btn = document.getElementById('btn-new-task');
@@ -385,7 +392,7 @@ function openInlineForm(id) {
       <label>Estado<select id="f-estado"></select></label>
       <label>Veces aplazada
         <div class="apl-box" id="f-apl-box"></div>
-        <small>Se cuenta sola al postergar la fecha</small>
+        <small>Automático al postergar la fecha; ajustable a mano</small>
       </label>
       <label class="full" id="f-motivo-apl-wrap" hidden><small class="apl-aviso" id="f-apl-aviso"></small>Motivo del aplazamiento (opcional)<input type="text" id="f-motivo-apl" placeholder="¿Por qué se posterga?"></label>
       <label class="full">Puntos extra<input type="number" id="f-extra" step="any" value="0"></label>
@@ -456,6 +463,15 @@ function openInlineForm(id) {
     } else {
       tbody.appendChild(tr);
     }
+    // Barra guardar/cancelar justo debajo del formulario que se está editando
+    const acciones = document.createElement('tr');
+    acciones.className = 'inline-actions-row';
+    const tdAcc = document.createElement('td');
+    tdAcc.colSpan = 10;
+    tdAcc.appendChild(document.querySelector('.add-task-bar'));
+    acciones.appendChild(tdAcc);
+    tr.after(acciones);
+    acciones.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } else {
     tbody.appendChild(tr);
     tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -497,7 +513,7 @@ function openInlineForm(id) {
     const esPostergacion = !!t && !!fechaOriginal && !fechaCierreOriginal && nueva > fechaOriginal;
     wrap.hidden = !esPostergacion;
     if (esPostergacion) {
-      const nro = (Number(t.vecesAplazada) || 0) + 1;
+      const nro = (Number(td.dataset.aplManual) || 0) + 1;
       td.querySelector('#f-apl-aviso').textContent = `⚠️ Este cambio contará como el aplazamiento N.º ${nro}`;
     }
     return esPostergacion;
@@ -590,18 +606,27 @@ function formTaskData(td) {
   };
 }
 
-// Contador + historial de aplazamientos en el formulario (solo lectura)
+// Contador manual (stepper) + historial de aplazamientos en el formulario
 function renderAplBox(td, t) {
   const box = td.querySelector('#f-apl-box');
-  const n = Number(t?.vecesAplazada) || 0;
   const hist = t?.historialAplazamientos || [];
-  let html = `<strong>${n}</strong>`;
-  if (hist.length) {
-    html += '<ul>' + hist.map(h =>
+  td.dataset.aplManual = String(Number(t?.vecesAplazada) || 0);
+  box.innerHTML = `
+    <div class="apl-row">
+      <button type="button" class="btn secondary icon" id="apl-menos" title="Quitar 1">−</button>
+      <strong id="apl-num">${td.dataset.aplManual}</strong>
+      <button type="button" class="btn secondary icon" id="apl-mas" title="Sumar 1">+</button>
+    </div>` +
+    (hist.length ? '<ul>' + hist.map(h =>
       `<li>${fmtDate(h.de)} → ${fmtDate(h.a)}${h.motivo ? ` — ${escXml(h.motivo)}` : ''}</li>`
-    ).join('') + '</ul>';
-  }
-  box.innerHTML = html;
+    ).join('') + '</ul>' : '');
+  const mover = (delta) => {
+    td.dataset.aplManual = String(Math.max(0, (Number(td.dataset.aplManual) || 0) + delta));
+    box.querySelector('#apl-num').textContent = td.dataset.aplManual;
+    updateFormScore();
+  };
+  box.querySelector('#apl-menos').onclick = () => mover(-1);
+  box.querySelector('#apl-mas').onclick = () => mover(1);
 }
 
 function updateFormScore() {
@@ -609,9 +634,9 @@ function updateFormScore() {
   if (!formTr) return;
   const el = formTr.querySelector('#form-score');
   const t = formTaskData(formTr);
-  // El contador ya no se edita a mano: se toma de la tarea y se suma el aplazamiento pendiente
-  const orig = editingId ? tasks.find(x => x.id === editingId) : null;
-  t.vecesAplazada = (Number(orig?.vecesAplazada) || 0) + (formTr.querySelector('td').dataset.postergando ? 1 : 0);
+  // Contador manual (stepper) + el aplazamiento pendiente si se está postergando la fecha
+  const tdForm = formTr.querySelector('td');
+  t.vecesAplazada = (Number(tdForm.dataset.aplManual) || 0) + (tdForm.dataset.postergando ? 1 : 0);
   if (!t.fechaCompromiso) { el.textContent = 'Ingresa la fecha compromiso para ver el puntaje estimado.'; return; }
   const d = desglosePuntaje(t);
   const estLabel = ESTADOS[d.est].label;
@@ -690,9 +715,11 @@ function saveInlineForm() {
     const fechaAnterior = t.fechaCompromiso;
     const estabaCerrada = !!t.fechaCierre;
     Object.assign(t, data);
+    // El stepper manda: el valor a mano reemplaza al contador guardado
+    t.vecesAplazada = Number(formTr.querySelector('td').dataset.aplManual) || 0;
     // Si se postergó la fecha compromiso de una tarea abierta, contar aplazamiento y registrar historial
     if (fechaAnterior && !estabaCerrada && data.fechaCompromiso > fechaAnterior) {
-      t.vecesAplazada = (Number(t.vecesAplazada) || 0) + 1;
+      t.vecesAplazada = t.vecesAplazada + 1;
       t.historialAplazamientos = t.historialAplazamientos || [];
       t.historialAplazamientos.push({
         de: fechaAnterior,
@@ -704,7 +731,11 @@ function saveInlineForm() {
       t.fechaOriginal = t.fechaOriginal || t.historialAplazamientos?.[0]?.de || fechaAnterior;
     }
   } else {
-    tasks.push(Object.assign({ id: crypto.randomUUID(), vecesAplazada: 0, historialAplazamientos: [] }, data));
+    tasks.push(Object.assign({
+      id: crypto.randomUUID(),
+      vecesAplazada: Number(formTr.querySelector('td').dataset.aplManual) || 0,
+      historialAplazamientos: [],
+    }, data));
   }
   saveTasks();
   closeInlineForm();
