@@ -149,6 +149,29 @@ function monthLabel(key) {
   const [y, m] = key.split('-').map(Number);
   return `${MESES[m - 1]} ${y}`;
 }
+// Lunes de la semana de una fecha ISO (la semana empieza en lunes, obvio)
+function weekKey(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function weekLabel(key) {
+  const [, m, d] = key.split('-').map(Number);
+  return `${d} ${MESES[m - 1].toLowerCase()}`;
+}
+function addDays(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function addMonths(key, n) {
+  let [y, m] = key.split('-').map(Number);
+  m += n;
+  while (m > 12) { m -= 12; y++; }
+  while (m < 1) { m += 12; y--; }
+  return y + '-' + String(m).padStart(2, '0');
+}
 
 /* ---------- Lógica de negocio ---------- */
 function estadoEfectivo(t) {
@@ -960,6 +983,8 @@ function renderDashboard() {
   renderPodio('podio-puntos', puntos, 'pts');
   renderPodio('podio-anticipadas', anticipadas, 'anticipadas', 2);
   renderMensual(list);
+  renderEvolucion(list);
+  renderRachas();
   renderAlertas(list);
 }
 
@@ -1084,6 +1109,109 @@ function renderMensual(list) {
     data[`${monthLabel(k)} — ${byMonth[k].completadas}/${byMonth[k].total} compl.`] = byMonth[k].puntos;
   }
   renderBarChart('chart-mensual', data, 'pts');
+}
+
+/* ---------- Evolución por persona (líneas por semana/mes) ---------- */
+const EVOL_COLORS = ['#0073ea', '#00c875', '#e2445c', '#fdab3d', '#a25ddc', '#579bfc'];
+
+// Puntos por persona por periodo; la fecha de cierre manda y si no hay, la compromiso
+function evolucionData(list, gran) {
+  const keyFn = gran === 'mes' ? monthKey : weekKey;
+  const porPersona = {};
+  for (const t of list) {
+    const p = puntaje(t);
+    if (p == null) continue;
+    const k = keyFn(t.fechaCierre || t.fechaCompromiso);
+    if (!k) continue;
+    const r = t.responsable || '(sin responsable)';
+    const s = porPersona[r] = porPersona[r] || {};
+    s[k] = (s[k] || 0) + p;
+  }
+  const claves = [...new Set(Object.values(porPersona).flatMap(s => Object.keys(s)))].sort();
+  if (!claves.length) return { periodos: [], series: [] };
+  // Rellenar los periodos vacíos entre el primero y el último para que la línea no salte huecos
+  const periodos = [];
+  for (let k = claves[0]; k <= claves[claves.length - 1]; k = gran === 'mes' ? addMonths(k, 1) : addDays(k, 7)) {
+    periodos.push(k);
+  }
+  // Máximo 6 líneas: las personas con más puntos en el rango
+  const top = Object.entries(porPersona)
+    .map(([r, s]) => [r, Object.values(s).reduce((a, b) => a + b, 0)])
+    .sort((a, b) => b[1] - a[1]).slice(0, 6).map(([r]) => r);
+  const series = top.map(r => ({ nombre: r, puntos: periodos.map(k => porPersona[r][k] || 0) }));
+  return { periodos, series };
+}
+
+function renderEvolucion(list) {
+  const el = document.getElementById('chart-evolucion');
+  const leg = document.getElementById('evol-legend');
+  const gran = document.getElementById('evol-granularidad').value;
+  const { periodos, series } = evolucionData(list, gran);
+  if (!periodos.length) { el.textContent = 'Sin datos en el rango seleccionado.'; leg.innerHTML = ''; return; }
+  const W = 720, H = 260, padL = 36, padR = 10, padT = 12, padB = 30;
+  const vals = series.flatMap(s => s.puntos);
+  const max = Math.max(1, ...vals), min = Math.min(0, ...vals);
+  const x = i => periodos.length === 1 ? (padL + W - padR) / 2 : padL + i * (W - padL - padR) / (periodos.length - 1);
+  const y = v => padT + (max - v) * (H - padT - padB) / (max - min);
+  const lbl = k => gran === 'mes' ? monthLabel(k) : 'Sem. ' + weekLabel(k);
+  let html = `<svg viewBox="0 0 ${W} ${H}" class="evol-svg">`;
+  if (min < 0) html += `<line x1="${padL}" y1="${y(0)}" x2="${W - padR}" y2="${y(0)}" class="evol-zero"/>`;
+  series.forEach((s, si) => {
+    const color = EVOL_COLORS[si % EVOL_COLORS.length];
+    html += `<polyline points="${s.puntos.map((v, i) => `${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+    s.puntos.forEach((v, i) => {
+      html += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${color}"><title>${escXml(s.nombre)}: ${v} pts — ${escXml(lbl(periodos[i]))}</title></circle>`;
+    });
+  });
+  const step = Math.ceil(periodos.length / 12); // como máximo ~12 etiquetas en el eje X
+  periodos.forEach((k, i) => {
+    if (i % step) return;
+    html += `<text x="${x(i)}" y="${H - 8}" class="evol-x">${escXml(gran === 'mes' ? monthLabel(k) : weekLabel(k))}</text>`;
+  });
+  html += `<text x="4" y="${y(max) + 4}" class="evol-y">${max}</text>`;
+  if (min < 0) html += `<text x="4" y="${y(min) + 4}" class="evol-y">${min}</text>`;
+  el.innerHTML = html + '</svg>';
+  leg.innerHTML = series.map((s, i) =>
+    `<span><i style="background:${EVOL_COLORS[i % EVOL_COLORS.length]}"></i>${escXml(s.nombre)}</span>`).join('');
+}
+
+/* ---------- Rachas: semanas consecutivas sin retrasos ---------- */
+// Una semana "manchada" = tiene alguna tarea vencida o terminada tarde.
+// Las semanas sin tareas no cuentan ni rompen la racha.
+function rachasData() {
+  const porPersona = {};
+  for (const t of tasks) {
+    if (!t.fechaCompromiso) continue;
+    const r = t.responsable || '(sin responsable)';
+    const k = weekKey(t.fechaCompromiso);
+    const manchada = ['vencida', 'tarde'].includes(estadoEfectivo(t));
+    const s = porPersona[r] = porPersona[r] || {};
+    s[k] = s[k] || manchada;
+  }
+  const res = [];
+  for (const [nombre, semanas] of Object.entries(porPersona)) {
+    const primera = Object.keys(semanas).sort()[0];
+    let racha = 0;
+    for (let k = weekKey(todayISO()); k >= primera; k = addDays(k, -7)) {
+      if (!(k in semanas)) continue; // sin tareas: no suma ni rompe
+      if (semanas[k]) break;         // semana manchada: se acabó la racha
+      racha++;
+    }
+    res.push([nombre, racha]);
+  }
+  return res.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function renderRachas() {
+  const el = document.getElementById('rachas');
+  const datos = rachasData();
+  if (!datos.length) { el.textContent = 'Sin datos.'; return; }
+  el.innerHTML = datos.map(([nombre, racha]) =>
+    `<div class="podio-item racha-item">
+      <span class="medal">${racha >= 4 ? '🔥' : racha >= 1 ? '✨' : '🧊'}</span>
+      <span>${escXml(nombre)}</span>
+      <span class="valor">${racha} ${racha === 1 ? 'semana' : 'semanas'}</span>
+    </div>`).join('');
 }
 
 function renderAlertas(list) {
@@ -1774,6 +1902,8 @@ const REPORTE_SECCIONES = [
   ['podio-puntos', 'Podio de puntajes'],
   ['podio-anticipadas', 'Podio de entregas anticipadas'],
   ['mensual', 'Evolución mensual'],
+  ['evolucion', 'Evolución por persona'],
+  ['rachas', 'Rachas sin retrasos'],
   ['detalle', 'Detalle por cumplimiento y próximos compromisos'],
   ['atencion', 'Tareas que demandan atención'],
 ];
@@ -1880,6 +2010,26 @@ function generarReporte() {
     const rows = Object.keys(byMonth).sort()
       .map(k => [monthLabel(k), byMonth[k].total, byMonth[k].completadas, byMonth[k].puntos]);
     html += '<h2>Evolución mensual</h2>' + (rows.length ? repTable(['Mes', 'Tareas', 'Completadas', 'Puntos'], rows) : '<p>Sin datos.</p>');
+  }
+
+  if (marcadas.includes('evolucion')) {
+    const gran = document.getElementById('evol-granularidad').value;
+    const { periodos, series } = evolucionData(list, gran);
+    const rows = [];
+    for (const s of series) {
+      s.puntos.forEach((v, i) => {
+        if (v === 0) return;
+        rows.push([s.nombre, gran === 'mes' ? monthLabel(periodos[i]) : 'Sem. ' + weekLabel(periodos[i]), v]);
+      });
+    }
+    html += `<h2>Evolución por persona (${gran === 'mes' ? 'por mes' : 'por semana'})</h2>`
+      + (rows.length ? repTable(['Responsable', 'Periodo', 'Puntos'], rows) : '<p>Sin datos.</p>');
+  }
+
+  if (marcadas.includes('rachas')) {
+    const rows = rachasData().map(([nombre, racha]) => [nombre, racha + (racha === 1 ? ' semana' : ' semanas')]);
+    html += '<h2>Rachas sin retrasos</h2><p>Semanas consecutivas sin tareas vencidas ni terminadas tarde (todo el historial).</p>'
+      + (rows.length ? repTable(['Responsable', 'Racha'], rows) : '<p>Sin datos.</p>');
   }
 
   if (marcadas.includes('detalle')) {
@@ -2020,6 +2170,13 @@ function init() {
     renderDashboard();
   };
   renderReporteChecks();
+  // Evolución por persona: granularidad semana/mes (persistida)
+  const selGran = document.getElementById('evol-granularidad');
+  selGran.value = localStorage.getItem('seguimiento.evolGran') || 'semana';
+  selGran.onchange = () => {
+    localStorage.setItem('seguimiento.evolGran', selGran.value);
+    renderEvolucion(dashTasks());
+  };
   initDashSecciones();
   document.getElementById('btn-generar-reporte').onclick = generarReporte;
   document.getElementById('btn-imprimir').onclick = () => window.print();

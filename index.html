@@ -102,6 +102,22 @@
           <h2>Evolución mensual (por fecha compromiso)</h2>
           <div id="chart-mensual" class="chart"></div>
         </div>
+        <div class="panel" data-sec="evolucion">
+          <h2>Evolución por persona</h2>
+          <div class="evol-controls">
+            <select id="evol-granularidad">
+              <option value="semana">Por semana</option>
+              <option value="mes">Por mes</option>
+            </select>
+          </div>
+          <div id="chart-evolucion" class="chart"></div>
+          <div id="evol-legend" class="legend"></div>
+        </div>
+        <div class="panel" data-sec="rachas">
+          <h2>Rachas sin retrasos</h2>
+          <p class="config-note">Semanas consecutivas sin tareas vencidas ni terminadas tarde. Se calcula sobre todo el historial, sin importar el rango.</p>
+          <div id="rachas"></div>
+        </div>
         <div class="panel" data-sec="alertas">
           <h2>Tareas que demandan atención</h2>
           <div id="alertas"></div>

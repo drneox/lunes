@@ -241,6 +241,10 @@ td .comment { display: block; color: var(--muted); font-size: 12px; white-space:
 .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .legend span { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
 .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.evol-controls { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.evol-x { font-size: 10px; fill: var(--muted); text-anchor: middle; }
+.evol-y { font-size: 10px; fill: var(--muted); }
+.evol-zero { stroke: var(--border); stroke-dasharray: 4 3; }
 
 /* ---------- Alertas ---------- */
 .alert-item {
