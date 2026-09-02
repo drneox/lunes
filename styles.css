@@ -370,7 +370,7 @@ tr.row-hidden { display: none; }
 .modal-panel p, .modal-panel li { color: var(--text); }
 .modal-panel ul { padding-left: 20px; }
 .modal-panel a { color: var(--accent-2); }
-.modal-actions { display: flex; justify-content: flex-end; margin-top: 20px; }
+.modal-actions { display: flex; justify-content: flex-end; margin-top: 20px; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- Toast ---------- */
 .toast {

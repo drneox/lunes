@@ -1361,8 +1361,6 @@ function mapPlannerRow(r) {
     fechaCierre,
     estado: completada ? (sugerirEstadoPorCierre(fechaCierre, fechaCompromiso) || 'a-tiempo') : '',
     complejidad: mapPrioridadPlanner(col(r, 'priority', 'prioridad')),
-    vecesAplazada: 0,
-    puntosExtra: 0,
     comentario: bucket ? `Bucket: ${bucket}` : '',
     enlace,
     _bucket: bucket, // transitorio: para elegir depósitos al importar; se quita antes de guardar
@@ -1438,8 +1436,9 @@ function importXLSX(file) {
           fechaCierre: parseExcelDate(r['fecha de cierre'] || r['fecha cierre'] || ''),
           estado: mapEstadoExcel(r['status'] || r['estado']),
           complejidad: mapComplejidadExcel(r['complejidad'] || r['com']),
-          vecesAplazada: Number(keyApl ? r[keyApl] : 0) || 0,
-          puntosExtra: Number(r['puntos extra']) || 0,
+          // Solo se incluyen si el archivo trae la columna: así no pisan los valores locales al actualizar
+          ...(keyApl ? { vecesAplazada: Number(r[keyApl]) || 0 } : {}),
+          ...('puntos extra' in r ? { puntosExtra: Number(r['puntos extra']) || 0 } : {}),
           comentario: String(r['comentario'] || '').trim(),
         });
       }
@@ -1466,7 +1465,7 @@ function importXLSX(file) {
 // Sin tareas previas, importar directo; si ya hay, el usuario elige fusionar o reemplazar
 function continuarImportacion(lista, sheetName, nuevosResp) {
   if (!tasks.length) {
-    aplicarImportacion(lista, 'fusionar', sheetName, nuevosResp);
+    aplicarImportacion(lista, 'actualizar', sheetName, nuevosResp);
   } else {
     abrirModalImportacion(lista, sheetName, nuevosResp);
   }
@@ -1492,22 +1491,27 @@ function abrirModalBuckets(lista, sheetName, nuevosResp) {
   document.getElementById('modal-buckets').hidden = false;
 }
 
-// Fusionar: actualiza las tareas que coincidan (tarea + responsable) y agrega las nuevas.
+// Fusionar: solo agrega las nuevas; las que coinciden quedan intactas (conserva cambios locales).
+// Actualizar: las que coinciden se actualizan con los campos que el archivo sí trae;
+// si el archivo no trae vecesAplazada/puntosExtra, se conservan los valores locales.
 // Reemplazar: borra las actuales y deja solo las del archivo.
 function aplicarImportacion(lista, modo, sheetName, nuevosResp) {
-  let nuevas = 0, actualizadas = 0;
+  let nuevas = 0, actualizadas = 0, conservadas = 0;
   if (modo === 'reemplazar') tasks = [];
   const porClave = new Map(tasks.map(t => [normalizeKey(t.tarea) + '|' + normalizeKey(t.responsable), t]));
   for (const nt of lista) {
     const clave = normalizeKey(nt.tarea) + '|' + normalizeKey(nt.responsable);
     const ex = porClave.get(clave);
     if (ex) {
+      if (modo === 'conservar') { conservadas++; continue; }
       const { id, ...campos } = nt; // conserva id, historial de aplazamientos y fecha original
       Object.assign(ex, campos);
       actualizadas++;
     } else {
-      tasks.push(nt);
-      porClave.set(clave, nt);
+      // Defaults para campos que el archivo no trajo (p. ej. Planner no tiene aplazamientos ni puntos extra)
+      const nueva = Object.assign({ vecesAplazada: 0, puntosExtra: 0 }, nt);
+      tasks.push(nueva);
+      porClave.set(clave, nueva);
       nuevas++;
     }
   }
@@ -1515,7 +1519,9 @@ function aplicarImportacion(lista, modo, sheetName, nuevosResp) {
   renderAll();
   const detalle = modo === 'reemplazar'
     ? `${nuevas} tareas importadas (se reemplazó lo anterior)`
-    : `${nuevas} nuevas · ${actualizadas} actualizadas`;
+    : modo === 'conservar'
+      ? `${nuevas} nuevas · ${conservadas} conservadas sin cambios`
+      : `${nuevas} nuevas · ${actualizadas} actualizadas`;
   toast(`"${sheetName}": ${detalle}` + (nuevosResp ? ` · ${nuevosResp} responsables nuevos` : ''), 5000);
 }
 
@@ -2027,11 +2033,17 @@ function init() {
   // Importación de Excel: elegir fusionar o reemplazar (modal)
   const modalImp = document.getElementById('modal-importar');
   const cerrarModalImp = () => { modalImp.hidden = true; importacionPendiente = null; };
+  document.getElementById('btn-import-conservar').onclick = () => {
+    if (!importacionPendiente) return cerrarModalImp();
+    const { lista, sheetName, nuevosResp } = importacionPendiente;
+    cerrarModalImp();
+    aplicarImportacion(lista, 'conservar', sheetName, nuevosResp);
+  };
   document.getElementById('btn-import-fusionar').onclick = () => {
     if (!importacionPendiente) return cerrarModalImp();
     const { lista, sheetName, nuevosResp } = importacionPendiente;
     cerrarModalImp();
-    aplicarImportacion(lista, 'fusionar', sheetName, nuevosResp);
+    aplicarImportacion(lista, 'actualizar', sheetName, nuevosResp);
   };
   document.getElementById('btn-import-reemplazar').onclick = () => {
     if (!importacionPendiente) return cerrarModalImp();
