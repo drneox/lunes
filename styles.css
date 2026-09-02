@@ -152,6 +152,7 @@ td .comment { display: block; color: var(--muted); font-size: 12px; white-space:
 .badge.cancelado { background: var(--red); }
 .badge.riesgo { background: var(--orange-dark); }
 .badge.suspendido { background: var(--purple); }
+.badge.muy-baja { background: var(--green); }
 .badge.baja { background: var(--gray); color: var(--text); }
 .badge.media { background: var(--yellow); color: var(--text); }
 .badge.alta { background: var(--orange); color: var(--text); }

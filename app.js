@@ -22,13 +22,13 @@ const ESTADOS = {
 };
 const ESTADOS_MANUALES = ['riesgo', 'vencida', 'anticipado', 'a-tiempo', 'tarde', 'suspendido', 'cancelado'];
 
-const COMPLEJIDADES = ['baja', 'media', 'alta', 'critica'];
-const COMPLEJIDAD_LABEL = { baja: 'Baja', media: 'Media', alta: 'Alta', critica: 'Muy Alta' };
+const COMPLEJIDADES = ['muy-baja', 'baja', 'media', 'alta', 'critica'];
+const COMPLEJIDAD_LABEL = { 'muy-baja': 'Muy Baja', baja: 'Baja', media: 'Media', alta: 'Alta', critica: 'Muy Alta' };
 
 const DEFAULT_CONFIG = {
   puntosEstado: { anticipado: 15, 'a-tiempo': 10, tarde: 5, vencida: 0, riesgo: 0, suspendido: 0, cancelado: 0, 'en-curso': 0 },
-  factorComplejidad: { baja: 1, media: 2, alta: 3, critica: 5 },
-  horasComplejidad: { baja: 3, media: 6, alta: 12, critica: null },
+  factorComplejidad: { 'muy-baja': 0.5, baja: 1, media: 2, alta: 3, critica: 5 },
+  horasComplejidad: { 'muy-baja': 1, baja: 3, media: 6, alta: 12, critica: null },
   penalidadAplazamiento: 2,
   // Dominio del tenant de Microsoft 365 para armar enlaces a tarjetas de Planner
   plannerTenant: '',
@@ -166,7 +166,7 @@ function puntaje(t) {
   if (est === 'en-curso' || est === 'riesgo') return null; // pendiente: aún no se evalúa
   const base = (config.puntosEstado[est] || 0) * (config.factorComplejidad[t.complejidad] || 0);
   const pen = (Number(t.vecesAplazada) || 0) * (Number(config.penalidadAplazamiento) || 0);
-  return base - pen + (Number(t.puntosExtra) || 0);
+  return Math.round(base - pen + (Number(t.puntosExtra) || 0)); // redondeo: el factor 0.5 de "Muy Baja" puede dar medios puntos
 }
 
 function sugerirEstadoPorCierre(fechaCierre, fechaCompromiso) {
@@ -1322,7 +1322,8 @@ function mapEstadoExcel(s) {
 
 function mapComplejidadExcel(s) {
   const k = normalizeKey(s);
-  if (k.startsWith('crit')) return 'critica';
+  if (k.includes('muy baj')) return 'muy-baja';
+  if (k.startsWith('crit') || k.includes('muy alt')) return 'critica';
   if (k.startsWith('alt')) return 'alta';
   if (k.startsWith('med')) return 'media';
   return 'baja';
