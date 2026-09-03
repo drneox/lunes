@@ -187,6 +187,14 @@
             https://tasks.office.com/<input type="text" id="config-planner-tenant" class="input-inline input-tenant" placeholder="tu-empresa.onmicrosoft.com">/Home/Task/…
           </p>
         </div>
+        <div class="panel">
+          <h2>7. Sonido de látigo</h2>
+          <p class="config-note">Porque asignar tareas también puede sonar a motivación.</p>
+          <p class="config-inline">
+            <label class="check"><input type="checkbox" id="config-latigo"> Reproducir un látigo al crear una tarea</label>
+            <button id="btn-latigo-test" class="btn secondary small">Probar 🔊</button>
+          </p>
+        </div>
       </div>
       <div class="panel formula-panel">
         <h2>Fórmula final</h2>
@@ -257,6 +265,23 @@
       <div class="modal-actions">
         <button id="btn-buckets-ok" class="btn primary">Continuar</button>
         <button id="btn-buckets-cancelar" class="btn secondary">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: elegir tareas individuales de Planner -->
+  <div id="modal-pick-tareas" class="modal-overlay" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="pick-titulo">
+      <h2 id="pick-titulo">Elegir tareas</h2>
+      <p>Marca las tareas que quieres importar (<span id="pick-contador">0</span> seleccionadas):</p>
+      <div class="pick-acciones">
+        <button id="btn-pick-todas" class="btn secondary small">Todas</button>
+        <button id="btn-pick-ninguna" class="btn secondary small">Ninguna</button>
+      </div>
+      <div id="pick-tareas" class="reporte-checks pick-lista"></div>
+      <div class="modal-actions">
+        <button id="btn-pick-ok" class="btn primary">Importar seleccionadas</button>
+        <button id="btn-pick-cancelar" class="btn secondary">Cancelar</button>
       </div>
     </div>
   </div>

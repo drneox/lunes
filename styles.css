@@ -376,6 +376,8 @@ tr.row-hidden { display: none; }
 .modal-panel ul { padding-left: 20px; }
 .modal-panel a { color: var(--accent-2); }
 .modal-actions { display: flex; justify-content: flex-end; margin-top: 20px; gap: 8px; flex-wrap: wrap; }
+.pick-lista { max-height: 320px; overflow-y: auto; }
+.pick-acciones { display: flex; gap: 8px; margin-bottom: 10px; }
 
 /* ---------- Toast ---------- */
 .toast {

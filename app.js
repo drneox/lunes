@@ -30,6 +30,8 @@ const DEFAULT_CONFIG = {
   factorComplejidad: { 'muy-baja': 0.5, baja: 1, media: 2, alta: 3, critica: 5 },
   horasComplejidad: { 'muy-baja': 1, baja: 3, media: 6, alta: 12, critica: null },
   penalidadAplazamiento: 2,
+  // Sonido de látigo al crear una tarea (desactivado por defecto)
+  sonidoLatigo: false,
   // Dominio del tenant de Microsoft 365 para armar enlaces a tarjetas de Planner
   plannerTenant: '',
   // El catálogo de puntos extra empieza vacío: cada quien registra las suyas desde la app
@@ -68,6 +70,7 @@ if (storedConfig.horasComplejidad) {
   }
 }
 if (storedConfig.penalidadAplazamiento != null) config.penalidadAplazamiento = storedConfig.penalidadAplazamiento;
+if (storedConfig.sonidoLatigo != null) config.sonidoLatigo = !!storedConfig.sonidoLatigo;
 if (storedConfig.plannerTenant != null) config.plannerTenant = storedConfig.plannerTenant;
 if (Array.isArray(storedConfig.extrasCatalogo)) config.extrasCatalogo = storedConfig.extrasCatalogo;
 // Si ya había tareas pero no lista de responsables, se deriva de las tareas (migración)
@@ -180,6 +183,11 @@ function estadoEfectivo(t) {
     if (t.estado === 'riesgo' && t.fechaCompromiso && t.fechaCompromiso < todayISO()) return 'vencida';
     return t.estado;
   }
+  // Con fecha de cierre y estado automático, el estado se deriva de la puntualidad real
+  // (si no, una tarea cerrada a tiempo figuraba como vencida y malograba los porcentajes)
+  if (t.fechaCierre) return sugerirEstadoPorCierre(t.fechaCierre, fechaBaseCierre(t)) || 'a-tiempo';
+  // Si ya se aplazó al menos una vez, va con retraso aunque la nueva fecha no haya llegado
+  if ((Number(t.vecesAplazada) || 0) > 0) return 'vencida';
   if (t.fechaCompromiso && t.fechaCompromiso < todayISO()) return 'vencida';
   return 'en-curso';
 }
@@ -612,6 +620,12 @@ function openInlineForm(id) {
           if (sug) sel.value = sug;
         }
       }
+      // Al marcar "Terminado a Tiempo" sin fecha de cierre, se asume que cerró el día compromiso
+      if (fid === 'f-estado') {
+        const sel = td.querySelector('#f-estado');
+        const inpC = td.querySelector('#f-fecha-cierre');
+        if (sel.value === 'a-tiempo' && !inpC.value) inpC.value = td.querySelector('#f-fecha').value;
+      }
       if (fid === 'f-fecha') td.dataset.postergando = actualizarAvisoAplazamiento() ? '1' : '';
       updateFormScore();
     });
@@ -762,6 +776,46 @@ function renderExtrasChips() {
   box.appendChild(chipNuevo);
 }
 
+// "¡Chas!" sintetizado con Web Audio: silbido ascendente + chasquido de ruido con decaimiento rápido
+function sonidoLatigo() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const t0 = ctx.currentTime;
+    // Silbido del látigo viajando
+    const durSwish = 0.18;
+    const bufSwish = ctx.createBuffer(1, ctx.sampleRate * durSwish, ctx.sampleRate);
+    const dSw = bufSwish.getChannelData(0);
+    for (let i = 0; i < dSw.length; i++) dSw[i] = (Math.random() * 2 - 1) * (i / dSw.length);
+    const srcSw = ctx.createBufferSource();
+    srcSw.buffer = bufSwish;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 2;
+    bp.frequency.setValueAtTime(400, t0);
+    bp.frequency.exponentialRampToValueAtTime(4000, t0 + durSwish);
+    const gSw = ctx.createGain();
+    gSw.gain.value = 0.25;
+    srcSw.connect(bp).connect(gSw).connect(ctx.destination);
+    srcSw.start(t0);
+    // El chasquido
+    const durCrack = 0.22;
+    const bufCrack = ctx.createBuffer(1, ctx.sampleRate * durCrack, ctx.sampleRate);
+    const dCr = bufCrack.getChannelData(0);
+    for (let i = 0; i < dCr.length; i++) {
+      const p = i / dCr.length;
+      dCr[i] = (Math.random() * 2 - 1) * Math.pow(1 - p, 10);
+    }
+    const srcCr = ctx.createBufferSource();
+    srcCr.buffer = bufCrack;
+    const gCr = ctx.createGain();
+    gCr.gain.value = 0.8;
+    srcCr.connect(gCr).connect(ctx.destination);
+    srcCr.start(t0 + durSwish);
+    srcCr.onended = () => ctx.close();
+  } catch { /* sin audio disponible */ }
+}
+
 function saveInlineForm() {
   const formTr = document.querySelector('#tasks-table tr.inline-form');
   if (!formTr) return;
@@ -818,6 +872,7 @@ function saveInlineForm() {
   saveTasks();
   closeInlineForm();
   renderAll();
+  if (!eraEdicion && config.sonidoLatigo) sonidoLatigo();
   toast(sePostergo ? 'Tarea actualizada ✓ (se sumó 1 aplazamiento)' : (eraEdicion ? 'Tarea actualizada ✓' : 'Tarea guardada ✓'));
 }
 
@@ -1357,6 +1412,17 @@ function renderConfig() {
     toast(config.plannerTenant ? 'Los próximos imports de Planner incluirán el enlace a cada tarjeta' : 'Dominio de Planner quitado');
   };
 
+  // Sonido de látigo al crear tarea
+  const inpLat = document.getElementById('config-latigo');
+  inpLat.checked = !!config.sonidoLatigo;
+  inpLat.onchange = () => {
+    config.sonidoLatigo = inpLat.checked;
+    saveConfig();
+    if (inpLat.checked) sonidoLatigo();
+    toast(inpLat.checked ? '¡Chas! Látigo activado' : 'Látigo desactivado');
+  };
+  document.getElementById('btn-latigo-test').onclick = sonidoLatigo;
+
   // Catálogo de extras
   renderExtrasCatalog();
 }
@@ -1484,7 +1550,7 @@ function mapPlannerRow(r) {
     tarea,
     descripcion: String(col(r, 'description', 'descripcion')).trim(),
     responsable: asignados[0] || '',
-    apoyo: asignados[1] || '',
+    apoyo: '', // con varios asignados se crea una tarea por persona (ver importXLSX)
     dependencia: false,
     fechaCompromiso,
     fechaCierre,
@@ -1492,6 +1558,7 @@ function mapPlannerRow(r) {
     complejidad: mapPrioridadPlanner(col(r, 'priority', 'prioridad')),
     comentario: bucket ? `Bucket: ${bucket}` : '',
     enlace,
+    _asignados: asignados, // transitorio: para crear una tarea por persona; se quita al importar
     _bucket: bucket, // transitorio: para elegir depósitos al importar; se quita antes de guardar
   };
 }
@@ -1538,11 +1605,15 @@ function importXLSX(file) {
         if (esPlanner) {
           const nt = mapPlannerRow(r);
           if (!nt) continue;
-          nt.responsable = resolverNombre(nt.responsable);
-          nt.apoyo = resolverNombre(nt.apoyo);
-          if (ensureResponsable(nt.responsable)) nuevosResp++;
-          if (ensureResponsable(nt.apoyo)) nuevosResp++;
-          lista.push(nt);
+          // Una tarea por persona asignada: cada quien la ve (y puntúa) como suya
+          const personas = nt._asignados.length ? nt._asignados : [''];
+          delete nt._asignados;
+          for (const p of personas) {
+            const copia = personas.length > 1 ? { ...nt, id: crypto.randomUUID() } : nt;
+            copia.responsable = resolverNombre(p);
+            if (ensureResponsable(copia.responsable)) nuevosResp++;
+            lista.push(copia);
+          }
           continue;
         }
         const tarea = String(r['tarea'] || '').trim();
@@ -1580,7 +1651,8 @@ function importXLSX(file) {
       if (esPlanner) {
         const buckets = new Set(lista.map(t => t._bucket || ''));
         if (buckets.size > 1) { abrirModalBuckets(lista, sheetLabel, nuevosResp); return; }
-        for (const t of lista) delete t._bucket;
+        abrirModalTareas(lista, sheetLabel, nuevosResp);
+        return;
       }
       continuarImportacion(lista, sheetLabel, nuevosResp);
     } catch (err) {
@@ -1620,6 +1692,33 @@ function abrirModalBuckets(lista, sheetName, nuevosResp) {
   document.getElementById('modal-buckets').hidden = false;
 }
 
+let importacionPick = null;
+
+// Planner: tras elegir depósitos, permite marcar tareas individuales (p. ej. importar solo una)
+function abrirModalTareas(lista, sheetName, nuevosResp) {
+  importacionPick = { lista, sheetName, nuevosResp };
+  const box = document.getElementById('pick-tareas');
+  box.innerHTML = '';
+  lista.forEach((t, i) => {
+    const l = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = i;
+    cb.checked = true;
+    cb.onchange = actualizarContadorPick;
+    const extra = [t.responsable, t._bucket].filter(Boolean).join(' · ');
+    l.append(cb, ` ${t.tarea}${extra ? ` — ${extra}` : ''}`);
+    box.appendChild(l);
+  });
+  actualizarContadorPick();
+  document.getElementById('modal-pick-tareas').hidden = false;
+}
+
+function actualizarContadorPick() {
+  document.getElementById('pick-contador').textContent =
+    document.querySelectorAll('#pick-tareas input:checked').length;
+}
+
 // Fusionar: solo agrega las nuevas; las que coinciden quedan intactas (conserva cambios locales).
 // Actualizar: las que coinciden se actualizan con los campos que el archivo sí trae;
 // si el archivo no trae vecesAplazada/puntosExtra, se conservan los valores locales.
@@ -1630,10 +1729,17 @@ function aplicarImportacion(lista, modo, sheetName, nuevosResp) {
   const porClave = new Map(tasks.map(t => [normalizeKey(t.tarea) + '|' + normalizeKey(t.responsable), t]));
   for (const nt of lista) {
     const clave = normalizeKey(nt.tarea) + '|' + normalizeKey(nt.responsable);
-    const ex = porClave.get(clave);
+    let ex = porClave.get(clave);
+    // Si no hay coincidencia exacta (p. ej. el archivo vino sin responsable o con otro nombre),
+    // intentar por título de tarea solo cuando hay UNA sola local con ese título: evita duplicados
+    if (!ex) {
+      const mismoTitulo = tasks.filter(x => normalizeKey(x.tarea) === normalizeKey(nt.tarea));
+      if (mismoTitulo.length === 1) ex = mismoTitulo[0];
+    }
     if (ex) {
       if (modo === 'conservar') { conservadas++; continue; }
       const { id, ...campos } = nt; // conserva id, historial de aplazamientos y fecha original
+      if (!campos.responsable) delete campos.responsable; // no borrar el responsable local con un vacío
       Object.assign(ex, campos);
       actualizadas++;
     } else {
@@ -2220,13 +2326,36 @@ function init() {
     const marcados = new Set([...document.querySelectorAll('#importar-buckets input:checked')].map(i => i.value));
     const { lista, sheetName, nuevosResp } = importacionBuckets;
     const filtrada = lista.filter(t => marcados.has(t._bucket || ''));
-    for (const t of filtrada) delete t._bucket;
     cerrarModalBuck();
     if (!filtrada.length) { toast('No hay tareas en los depósitos seleccionados'); return; }
-    continuarImportacion(filtrada, sheetName, nuevosResp);
+    abrirModalTareas(filtrada, sheetName, nuevosResp);
   };
   document.getElementById('btn-buckets-cancelar').onclick = cerrarModalBuck;
   modalBuck.addEventListener('click', (e) => { if (e.target === modalBuck) cerrarModalBuck(); });
+
+  // Importación desde Planner: elegir tareas individuales
+  const modalPick = document.getElementById('modal-pick-tareas');
+  const cerrarModalPick = () => { modalPick.hidden = true; importacionPick = null; };
+  document.getElementById('btn-pick-todas').onclick = () => {
+    document.querySelectorAll('#pick-tareas input').forEach(i => { i.checked = true; });
+    actualizarContadorPick();
+  };
+  document.getElementById('btn-pick-ninguna').onclick = () => {
+    document.querySelectorAll('#pick-tareas input').forEach(i => { i.checked = false; });
+    actualizarContadorPick();
+  };
+  document.getElementById('btn-pick-ok').onclick = () => {
+    if (!importacionPick) return cerrarModalPick();
+    const marcadas = new Set([...document.querySelectorAll('#pick-tareas input:checked')].map(i => Number(i.value)));
+    const { lista, sheetName, nuevosResp } = importacionPick;
+    const elegidas = lista.filter((_, i) => marcadas.has(i));
+    cerrarModalPick();
+    if (!elegidas.length) { toast('No seleccionaste ninguna tarea'); return; }
+    for (const t of elegidas) delete t._bucket;
+    continuarImportacion(elegidas, sheetName, nuevosResp);
+  };
+  document.getElementById('btn-pick-cancelar').onclick = cerrarModalPick;
+  modalPick.addEventListener('click', (e) => { if (e.target === modalPick) cerrarModalPick(); });
   document.getElementById('btn-cerrar-reporte').onclick = () => { document.getElementById('reporte').hidden = true; };
 
   // Respaldo automático
