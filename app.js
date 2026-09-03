@@ -1719,23 +1719,24 @@ function actualizarContadorPick() {
     document.querySelectorAll('#pick-tareas input:checked').length;
 }
 
-// Fusionar: solo agrega las nuevas; las que coinciden quedan intactas (conserva cambios locales).
+// La identidad de una tarea es título + fecha compromiso. El responsable solo distingue
+// autores: misma tarea y fecha con otro responsable = otra asignación, se crea aparte.
+// Fusionar: las que coinciden quedan intactas (conserva cambios locales); solo agrega nuevas.
 // Actualizar: las que coinciden se actualizan con los campos que el archivo sí trae;
 // si el archivo no trae vecesAplazada/puntosExtra, se conservan los valores locales.
 // Reemplazar: borra las actuales y deja solo las del archivo.
 function aplicarImportacion(lista, modo, sheetName, nuevosResp) {
   let nuevas = 0, actualizadas = 0, conservadas = 0;
   if (modo === 'reemplazar') tasks = [];
-  const porClave = new Map(tasks.map(t => [normalizeKey(t.tarea) + '|' + normalizeKey(t.responsable), t]));
+  const claveTF = (t) => normalizeKey(t.tarea) + '|' + (t.fechaCompromiso || '');
+  const claveTFR = (t) => claveTF(t) + '|' + normalizeKey(t.responsable);
+  const porTFR = new Map(tasks.map(t => [claveTFR(t), t]));
+  const porTF = new Map(tasks.map(t => [claveTF(t), t]));
   for (const nt of lista) {
-    const clave = normalizeKey(nt.tarea) + '|' + normalizeKey(nt.responsable);
-    let ex = porClave.get(clave);
-    // Si no hay coincidencia exacta (p. ej. el archivo vino sin responsable o con otro nombre),
-    // intentar por título de tarea solo cuando hay UNA sola local con ese título: evita duplicados
-    if (!ex) {
-      const mismoTitulo = tasks.filter(x => normalizeKey(x.tarea) === normalizeKey(nt.tarea));
-      if (mismoTitulo.length === 1) ex = mismoTitulo[0];
-    }
+    let ex = porTFR.get(claveTFR(nt));
+    // Si la fila vino sin autor, empareja con la local de mismo título+fecha aunque tenga responsable
+    if (!ex && !nt.responsable) ex = porTF.get(claveTF(nt));
+    // Si vino con autor y el título+fecha existe pero de otra persona: es otra asignación → se crea
     if (ex) {
       if (modo === 'conservar') { conservadas++; continue; }
       const { id, ...campos } = nt; // conserva id, historial de aplazamientos y fecha original
@@ -1746,7 +1747,8 @@ function aplicarImportacion(lista, modo, sheetName, nuevosResp) {
       // Defaults para campos que el archivo no trajo (p. ej. Planner no tiene aplazamientos ni puntos extra)
       const nueva = Object.assign({ vecesAplazada: 0, puntosExtra: 0 }, nt);
       tasks.push(nueva);
-      porClave.set(clave, nueva);
+      porTFR.set(claveTFR(nueva), nueva);
+      if (!porTF.has(claveTF(nueva))) porTF.set(claveTF(nueva), nueva);
       nuevas++;
     }
   }
@@ -1764,11 +1766,17 @@ let importacionPendiente = null;
 
 function abrirModalImportacion(lista, sheetName, nuevosResp) {
   importacionPendiente = { lista, sheetName, nuevosResp };
-  const porClave = new Map(tasks.map(t => [normalizeKey(t.tarea) + '|' + normalizeKey(t.responsable), true]));
-  const coinciden = lista.filter(nt => porClave.has(normalizeKey(nt.tarea) + '|' + normalizeKey(nt.responsable))).length;
+  // Misma regla que en aplicarImportacion: coincide si tarea+fecha+responsable ya existe,
+  // o tarea+fecha cuando la fila vino sin autor
+  const claveTF = (t) => normalizeKey(t.tarea) + '|' + (t.fechaCompromiso || '');
+  const porTFR = new Set(tasks.map(t => claveTF(t) + '|' + normalizeKey(t.responsable)));
+  const porTF = new Set(tasks.map(claveTF));
+  const coinciden = lista.filter(nt =>
+    porTFR.has(claveTF(nt) + '|' + normalizeKey(nt.responsable)) || (!nt.responsable && porTF.has(claveTF(nt)))
+  ).length;
   document.getElementById('importar-resumen').textContent =
     `El archivo "${sheetName}" tiene ${lista.length} tareas y ya tienes ${tasks.length} registradas ` +
-    `(${coinciden} coinciden). Elige cómo importar:`;
+    `(${coinciden} coinciden por título y fecha). Elige cómo importar:`;
   document.getElementById('modal-importar').hidden = false;
 }
 
