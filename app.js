@@ -1550,7 +1550,7 @@ function mapPlannerRow(r) {
     tarea,
     descripcion: String(col(r, 'description', 'descripcion')).trim(),
     responsable: asignados[0] || '',
-    apoyo: '', // con varios asignados se crea una tarea por persona (ver importXLSX)
+    apoyo: '', // se asigna en importXLSX (asignados de a pares: responsable + apoyo)
     dependencia: false,
     fechaCompromiso,
     fechaCierre,
@@ -1605,13 +1605,16 @@ function importXLSX(file) {
         if (esPlanner) {
           const nt = mapPlannerRow(r);
           if (!nt) continue;
-          // Una tarea por persona asignada: cada quien la ve (y puntúa) como suya
-          const personas = nt._asignados.length ? nt._asignados : [''];
+          // Asignados de a pares: cada tarea lleva responsable y apoyo;
+          // si sobra uno (3.º, 5.º...), se crea otra tarea con él de responsable
+          const asignados = nt._asignados;
           delete nt._asignados;
-          for (const p of personas) {
-            const copia = personas.length > 1 ? { ...nt, id: crypto.randomUUID() } : nt;
-            copia.responsable = resolverNombre(p);
+          for (let i = 0; i < Math.max(asignados.length, 1); i += 2) {
+            const copia = i === 0 ? nt : { ...nt, id: crypto.randomUUID() };
+            copia.responsable = resolverNombre(asignados[i] || '');
+            copia.apoyo = resolverNombre(asignados[i + 1] || '');
             if (ensureResponsable(copia.responsable)) nuevosResp++;
+            if (ensureResponsable(copia.apoyo)) nuevosResp++;
             lista.push(copia);
           }
           continue;
