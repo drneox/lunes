@@ -245,6 +245,8 @@ function filteredTasks() {
   const fEst = document.getElementById('filter-estado').value;
   const fComp = document.getElementById('filter-complejidad').value;
   const fMes = document.getElementById('filter-mes').value;
+  const fDesde = document.getElementById('filter-desde').value;
+  const fHasta = document.getElementById('filter-hasta').value;
 
   return tasks.filter(t => {
     if (q && ![t.tarea, t.descripcion, t.comentario, t.responsable].some(v => (v || '').toLowerCase().includes(q))) return false;
@@ -252,6 +254,9 @@ function filteredTasks() {
     if (fEst && estadoEfectivo(t) !== fEst) return false;
     if (fComp && t.complejidad !== fComp) return false;
     if (fMes && monthKey(t.fechaCompromiso) !== fMes) return false;
+    // Rango por fecha compromiso (se combina con el mes si ambos están puestos)
+    if (fDesde && (!t.fechaCompromiso || t.fechaCompromiso < fDesde)) return false;
+    if (fHasta && (!t.fechaCompromiso || t.fechaCompromiso > fHasta)) return false;
     return true;
   }).sort((a, b) => {
     let va, vb;
@@ -2204,17 +2209,19 @@ function init() {
   });
 
   // Filtros
-  for (const id of ['filter-text', 'filter-responsable', 'filter-estado', 'filter-complejidad', 'filter-mes']) {
+  for (const id of ['filter-text', 'filter-responsable', 'filter-estado', 'filter-complejidad', 'filter-mes', 'filter-desde', 'filter-hasta']) {
     document.getElementById(id).addEventListener('input', renderTasks);
   }
   // Calendario al hacer clic en cualquier parte del campo
-  for (const id of ['filter-mes', 'dash-desde', 'dash-hasta']) activarPickerTotal(document.getElementById(id));
+  for (const id of ['filter-mes', 'filter-desde', 'filter-hasta', 'dash-desde', 'dash-hasta']) activarPickerTotal(document.getElementById(id));
   document.getElementById('btn-clear-filters').onclick = () => {
     document.getElementById('filter-text').value = '';
     document.getElementById('filter-responsable').value = '';
     document.getElementById('filter-estado').value = '';
     document.getElementById('filter-complejidad').value = '';
     document.getElementById('filter-mes').value = '';
+    document.getElementById('filter-desde').value = '';
+    document.getElementById('filter-hasta').value = '';
     renderTasks();
   };
 
